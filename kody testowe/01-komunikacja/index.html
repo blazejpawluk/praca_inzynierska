@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>AUTKO - panel sterowania</title>
+</head>
+<body>
+
+<h1>AUTKO</h1>
+<p>
+  Połączenie z autkiem: <b id="status">rozłączono</b>
+  | ostatnia ramka danych: <span id="age">brak</span>
+</p>
+
+<h2>Dane z Arduino</h2>
+<table border="1" cellpadding="4">
+  <tr><th>Enkoder lewy</th><td id="encL">-</td><td>impulsy</td></tr>
+  <tr><th>Enkoder prawy</th><td id="encR">-</td><td>impulsy</td></tr>
+  <tr><th>Sonar</th><td id="sonar">-</td><td>cm</td></tr>
+  <tr><th>Akcelerometr X</th><td id="ax">-</td><td>g</td></tr>
+  <tr><th>Akcelerometr Y</th><td id="ay">-</td><td>g</td></tr>
+  <tr><th>Akcelerometr Z</th><td id="az">-</td><td>g</td></tr>
+  <tr><th>Żyroskop X</th><td id="gx">-</td><td>°/s</td></tr>
+  <tr><th>Żyroskop Y</th><td id="gy">-</td><td>°/s</td></tr>
+  <tr><th>Żyroskop Z</th><td id="gz">-</td><td>°/s</td></tr>
+</table>
+
+<h2>Sterowanie</h2>
+
+<h3>Silniki (ujemna prędkość = do tyłu)</h3>
+<p>
+  Silnik lewy: <input type="range" id="speedL" min="-255" max="255" value="0">
+  <b id="speedLVal">0</b>
+</p>
+<p>
+  Silnik prawy: <input type="range" id="speedR" min="-255" max="255" value="0">
+  <b id="speedRVal">0</b>
+</p>
+<p>
+  Prędkość dla przycisków: <input type="range" id="baseSpeed" min="0" max="255" value="180">
+  <b id="baseSpeedVal">180</b>
+</p>
+<p>
+  <button id="btnLeftFwd">Lewy przód</button>
+  <button id="btnRightFwd">Prawy przód</button>
+  <button id="btnBothFwd">Oba przód</button>
+  <button id="btnBothBack">Oba tył</button>
+  <button id="btnStop"><b>STOP</b></button>
+</p>
+
+<h3>Serwo</h3>
+<p>
+  Kąt: <input type="range" id="servo" min="0" max="180" value="90">
+  <b id="servoVal">90</b>°
+</p>
+
+<h3>Sonar</h3>
+<p><button id="btnTrig">Pomiar sonaru (TRIG)</button></p>
+
+<p>Ostatnie wysłane polecenie: <code id="lastCmd">-</code></p>
+
+<h2>Kamera</h2>
+<p><button id="btnCam">Odśwież obraz</button></p>
+<img id="cam" alt="Obraz z kamery" width="640">
+
+<h2>Log</h2>
+<pre id="log"></pre>
+
+<script>
+// ---------- Konfiguracja ----------
+const ESP_HOST = "192.168.4.1";                 // stały adres ESP32-CAM w trybie AP
+const WS_URL = `ws://${ESP_HOST}:80/`;
+const STREAM_URL = `http://${ESP_HOST}:81/stream`;
+const SLIDER_THROTTLE_MS = 50;                  // maks. ~20 poleceń/s z suwaka
+const MOTOR_REPEAT_MS = 200;                    // powtarzanie C:M (pod watchdog w Arduino)
+
+const $ = (id) => document.getElementById(id);
+
+let ws = null;
+let lastFrameTime = null;
+
+// ---------- Log ----------
+function log(text) {
+  const el = $("log");
+  const lines = el.textContent.split("\n").slice(0, 19);
+  el.textContent = `${new Date().toLocaleTimeString()} ${text}\n` + lines.join("\n");
+}
+
+// ---------- WebSocket ----------
+function setStatus(text) {
+  $("status").textContent = text;
+}
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { setStatus("połączono"); log("WS: połączono"); };
+  ws.onclose = () => { setStatus("rozłączono, ponawiam..."); setTimeout(connect, 1000); };
+  ws.onerror = () => { ws.close(); };
+  ws.onmessage = (ev) => onLine(String(ev.data));
+}
+
+function sendCmd(cmd) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(cmd);
+  $("lastCmd").textContent = cmd;
+  return true;
+}
+
+// ---------- Odbiór i parsowanie ----------
+// Format: T:<encL>,<encR>,<sonar>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>
+function parseTelemetry(line) {
+  if (!line.startsWith("T:")) return null;
+  const p = line.slice(2).split(",").map(Number);
+  if (p.length !== 9 || p.some(Number.isNaN)) return null;
+  const [encL, encR, sonar, ax, ay, az, gx, gy, gz] = p;
+  return { encL, encR, sonar, ax, ay, az, gx, gy, gz };
+}
+
+function showTelemetry(t) {
+  $("encL").textContent = t.encL;
+  $("encR").textContent = t.encR;
+  $("sonar").textContent = t.sonar;
+  for (const k of ["ax", "ay", "az", "gx", "gy", "gz"]) {
+    $(k).textContent = t[k].toFixed(2);
+  }
+}
+
+function onLine(line) {
+  line = line.trim();
+  if (!line) return;
+  const t = parseTelemetry(line);
+  if (t) {
+    showTelemetry(t);
+    lastFrameTime = Date.now();
+  } else {
+    log("RX (nierozpoznane): " + line);
+  }
+}
+
+setInterval(() => {
+  $("age").textContent = lastFrameTime === null
+    ? "brak"
+    : ((Date.now() - lastFrameTime) / 1000).toFixed(1) + " s temu";
+}, 200);
+
+// ---------- Silniki ----------
+const speedL = $("speedL");
+const speedR = $("speedR");
+const baseSpeed = $("baseSpeed");
+let lastMotorSend = 0;
+
+function motorCmd() {
+  return `C:M,${parseInt(speedL.value, 10)},${parseInt(speedR.value, 10)}`;
+}
+
+function sendMotors(force) {
+  const now = Date.now();
+  if (!force && now - lastMotorSend < SLIDER_THROTTLE_MS) return;
+  lastMotorSend = now;
+  sendCmd(motorCmd());
+}
+
+function updateMotorLabels() {
+  $("speedLVal").textContent = speedL.value;
+  $("speedRVal").textContent = speedR.value;
+}
+
+function setMotors(l, r) {
+  speedL.value = l;
+  speedR.value = r;
+  updateMotorLabels();
+  sendMotors(true);
+}
+
+for (const s of [speedL, speedR]) {
+  s.addEventListener("input", () => { updateMotorLabels(); sendMotors(false); });
+  s.addEventListener("change", () => sendMotors(true));
+}
+baseSpeed.addEventListener("input", () => {
+  $("baseSpeedVal").textContent = baseSpeed.value;
+});
+
+const base = () => parseInt(baseSpeed.value, 10);
+$("btnLeftFwd").onclick  = () => setMotors(base(), 0);
+$("btnRightFwd").onclick = () => setMotors(0, base());
+$("btnBothFwd").onclick  = () => setMotors(base(), base());
+$("btnBothBack").onclick = () => setMotors(-base(), -base());
+$("btnStop").onclick     = () => setMotors(0, 0);
+
+// Dopóki któryś silnik ma niezerową prędkość, powtarzamy polecenie
+// (gdy połączenie padnie, Arduino zatrzyma silniki po watchdogu).
+setInterval(() => {
+  if (parseInt(speedL.value, 10) !== 0 || parseInt(speedR.value, 10) !== 0) {
+    sendMotors(true);
+  }
+}, MOTOR_REPEAT_MS);
+
+// ---------- Serwo ----------
+const servo = $("servo");
+let lastServoSend = 0;
+
+function sendServo(force) {
+  const now = Date.now();
+  if (!force && now - lastServoSend < SLIDER_THROTTLE_MS) return;
+  lastServoSend = now;
+  sendCmd(`C:S,${parseInt(servo.value, 10)}`);
+}
+
+servo.addEventListener("input", () => {
+  $("servoVal").textContent = servo.value;
+  sendServo(false);
+});
+servo.addEventListener("change", () => sendServo(true));
+
+// ---------- Sonar ----------
+$("btnTrig").onclick = () => sendCmd("C:TRIG");
+
+// ---------- Kamera ----------
+const cam = $("cam");
+function loadCamera() {
+  cam.src = STREAM_URL + "?t=" + Date.now();
+}
+cam.onerror = () => setTimeout(loadCamera, 2000);
+$("btnCam").onclick = loadCamera;
+
+// ---------- Start ----------
+connect();
+loadCamera();
+</script>
+</body>
+</html>

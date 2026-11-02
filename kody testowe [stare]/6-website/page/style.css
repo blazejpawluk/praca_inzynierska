@@ -1,0 +1,79 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f2f2f2;
+    color: #222;
+}
+
+.container {
+    width: min(800px, 90%);
+    margin: 50px auto;
+}
+
+h1 {
+    margin-bottom: 30px;
+}
+
+.status {
+    padding: 15px;
+    margin-bottom: 20px;
+    background: white;
+    border-radius: 8px;
+}
+
+#connectionStatus {
+    font-weight: bold;
+}
+
+.messages {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+#messageList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.message {
+    padding: 12px;
+    background: #eeeeee;
+    border-radius: 6px;
+}
+
+.send-message {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+#messageInput {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 16px;
+    margin-bottom: 10px;
+}
+
+#sendMessageButton {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    background: #222;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+#sendMessageButton:hover {
+    background: #444;
+}

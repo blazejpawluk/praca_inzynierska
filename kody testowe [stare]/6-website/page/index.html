@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pl">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>ESP32-CAM</title>
+		<link rel="stylesheet" href="style.css">
+	</head>
+
+	<body>
+		<main class="container">
+			<h1>ESP32-CAM</h1>
+
+			<div class="status">
+				Status:
+				<span id="connectionStatus">
+					Rozłączony
+				</span>
+			</div>
+
+			<div class="send-message">
+				<h2>Wyślij wiadomość do ESP32-CAM</h2>
+				<input
+					type="text"
+					id="messageInput"
+					placeholder="Wpisz wiadomość..."
+				>
+				<button id="sendMessageButton">
+					Wyślij
+				</button>
+			</div>
+			
+			<div class="messages">
+				<h2>Otrzymane wiadomości</h2>
+				<div id="messageList"></div>
+			</div>
+		</main>
+
+		<script src="app.js"></script>
+	</body>
+</html>
