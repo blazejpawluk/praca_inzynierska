@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <title>AUTKO - panel sterowania</title>
+<!--
+  Uruchamiaj tę stronę przez lokalny serwer, nie jako plik (file://):
+    python3 -m http.server 8000     (w folderze z index.html)
+    potem w przeglądarce: http://localhost:8000/index.html
+  Komputer musi być połączony z siecią WiFi "AUTKO".
+-->
 </head>
 <body>
 
@@ -60,8 +66,19 @@
 <p>Ostatnie wysłane polecenie: <code id="lastCmd">-</code></p>
 
 <h2>Kamera</h2>
-<p><button id="btnCam">Odśwież obraz</button></p>
-<img id="cam" alt="Obraz z kamery" width="640">
+<p>
+  <button id="btnShot">Zrób zdjęcie</button>
+  Automatycznie co:
+  <select id="autoShot">
+    <option value="0">wyłączone</option>
+    <option value="1000">1 s</option>
+    <option value="2000">2 s</option>
+    <option value="5000">5 s</option>
+  </select>
+  <a id="saveShot" style="display:none">Zapisz zdjęcie</a>
+</p>
+<p id="shotInfo">brak zdjęcia</p>
+<img id="cam" alt="Tu pojawi się zdjęcie z kamery" width="640">
 
 <h2>Log</h2>
 <pre id="log"></pre>
@@ -70,7 +87,8 @@
 // ---------- Konfiguracja ----------
 const ESP_HOST = "192.168.4.1";                 // stały adres ESP32-CAM w trybie AP
 const WS_URL = `ws://${ESP_HOST}:80/`;
-const STREAM_URL = `http://${ESP_HOST}:81/stream`;
+const CAPTURE_URL = `http://${ESP_HOST}:81/capture`;
+const SHOT_TIMEOUT_MS = 8000;                   // po tylu ms uznajemy zdjęcie za nieudane
 const SLIDER_THROTTLE_MS = 50;                  // maks. ~20 poleceń/s z suwaka
 const MOTOR_REPEAT_MS = 200;                    // powtarzanie C:M (pod watchdog w Arduino)
 
@@ -215,17 +233,74 @@ servo.addEventListener("change", () => sendServo(true));
 // ---------- Sonar ----------
 $("btnTrig").onclick = () => sendCmd("C:TRIG");
 
-// ---------- Kamera ----------
-const cam = $("cam");
-function loadCamera() {
-  cam.src = STREAM_URL + "?t=" + Date.now();
+// ---------- Kamera (zdjęcia na żądanie) ----------
+let shotBusy = false;        // true, dopóki trwa pobieranie zdjęcia (nie wysyłamy kilku naraz)
+let autoTimer = null;
+let lastBlobUrl = null;
+
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_` +
+         `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
-cam.onerror = () => setTimeout(loadCamera, 2000);
-$("btnCam").onclick = loadCamera;
+
+// Kolejne automatyczne zdjęcie planujemy dopiero po zakończeniu poprzedniego,
+// więc żądania nigdy się nie nakładają.
+function scheduleAuto() {
+  clearTimeout(autoTimer);
+  const ms = parseInt($("autoShot").value, 10);
+  if (ms > 0) autoTimer = setTimeout(takePhoto, ms);
+}
+
+async function takePhoto() {
+  if (shotBusy) return;
+  shotBusy = true;
+  $("btnShot").disabled = true;
+  $("shotInfo").textContent = "robię zdjęcie...";
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), SHOT_TIMEOUT_MS);
+  const t0 = performance.now();
+
+  try {
+    const resp = await fetch(`${CAPTURE_URL}?t=${Date.now()}`, { signal: ctrl.signal, cache: "no-store" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const blob = await resp.blob();
+
+    const url = URL.createObjectURL(blob);
+    $("cam").src = url;
+    if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+    lastBlobUrl = url;
+
+    const save = $("saveShot");
+    save.href = url;
+    save.download = `autko_${stamp()}.jpg`;
+    save.style.display = "";
+
+    $("shotInfo").textContent =
+      `zdjęcie z ${new Date().toLocaleTimeString()} - ${(blob.size / 1024).toFixed(1)} kB, ` +
+      `${Math.round(performance.now() - t0)} ms`;
+  } catch (e) {
+    const msg = e.name === "AbortError" ? "przekroczono czas oczekiwania" : e.message;
+    $("shotInfo").textContent = "błąd zdjęcia: " + msg;
+    log("Zdjęcie: " + msg);
+  } finally {
+    clearTimeout(timeout);
+    shotBusy = false;
+    $("btnShot").disabled = false;
+    scheduleAuto();
+  }
+}
+
+$("btnShot").onclick = takePhoto;
+$("autoShot").addEventListener("change", () => {
+  clearTimeout(autoTimer);
+  if (parseInt($("autoShot").value, 10) > 0) takePhoto();
+});
 
 // ---------- Start ----------
 connect();
-loadCamera();
 </script>
 </body>
 </html>

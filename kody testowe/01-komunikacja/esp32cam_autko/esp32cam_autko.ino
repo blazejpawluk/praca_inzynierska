@@ -1,31 +1,31 @@
 /*
-  AUTKO - ESP32-CAM (AI Thinker)
+  AUTKO - ESP32-CAM (AI Thinker) - wersja ze zdjęciami (bez transmisji na żywo)
 
   - własna sieć WiFi (access point): SSID "AUTKO", hasło "password", adres 192.168.4.1
   - WebSocket na porcie 80:  ws://192.168.4.1:80/
       linia z UART (Arduino) -> wszyscy klienci WebSocket
       tekst z WebSocket      -> UART (Arduino), z dopisanym '\n'
-  - strumień MJPEG na porcie 81:  http://192.168.4.1:81/stream
+  - zdjęcie (JPEG) na żądanie:  http://192.168.4.1:81/capture
+
+  Zdjęcie jest robione tylko wtedy, gdy strona o nie poprosi. Dzięki temu kamera
+  nie pracuje non-stop i nie blokuje WiFi ani mostu UART <-> WebSocket.
 
   POŁĄCZENIE UART Z ARDUINO (przez konwerter poziomów 3.3V <-> 5V):
       ESP32 GPIO13 (RX)  <-  Arduino D1 (TX)
       ESP32 GPIO14 (TX)  ->  Arduino D0 (RX)
       wspólna masa (GND)
-  Piny kamery AI Thinker: 0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39
-  (GPIO16 zajmuje PSRAM). GPIO13 i 14 są wolne, nie są pinami rozruchowymi
-  (strapping), a karta SD i tak nie jest używana.
 
   Arduino IDE:
+    - pakiet "esp32 by Espressif" w wersji 2.0.17 (w 3.x kamera nie działała)
     - płytka: "AI Thinker ESP32-CAM", PSRAM: Enabled
-    - partycje: "Huge APP (3MB No OTA/1MB SPIFFS)" (gdyby brakło miejsca)
     - biblioteka: "WebSockets" (Markus Sattler / arduinoWebSockets)
-    - esp_camera i esp_http_server są wbudowane w pakiet ESP32
 */
 
 #include <WiFi.h>
 #include <WebSocketsServer.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
+#include "esp_log.h"
 
 // ---------- Konfiguracja ----------
 const char* AP_SSID = "AUTKO";
@@ -35,8 +35,12 @@ const char* AP_PASS = "password";
 #define UART_TX_PIN 14
 #define UART_BAUD   115200      // musi być takie samo jak w Arduino
 
-#define CAM_FRAME_SIZE   FRAMESIZE_QVGA   // 320x240; większa = większe opóźnienie (VGA = 640x480)
-#define CAM_JPEG_QUALITY 12               // 10 (najlepsza) .. 63 (najgorsza)
+// Rozdzielczość zdjęcia: FRAMESIZE_QQVGA (160x120), QVGA (320x240), VGA (640x480),
+// SVGA (800x600), XGA (1024x768), SXGA (1280x1024), UXGA (1600x1200).
+// Większe zdjęcie = dłuższe robienie i wysyłanie (VGA zajmuje ok. pół sekundy).
+#define CAM_FRAME_SIZE   FRAMESIZE_VGA
+#define CAM_JPEG_QUALITY 12              // 10 (najlepsza) .. 63 (najgorsza)
+#define CAM_XCLK_HZ      10000000        // przy braku problemów można podnieść do 20000000
 
 // ---------- Piny kamery (AI Thinker) ----------
 #define PWDN_GPIO_NUM   32
@@ -79,20 +83,15 @@ bool initCamera() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn  = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = CAM_XCLK_HZ;
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size   = CAM_FRAME_SIZE;
   config.jpeg_quality = CAM_JPEG_QUALITY;
 
-  if (psramFound()) {
-    config.fb_count    = 2;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.grab_mode   = CAMERA_GRAB_LATEST;   // zawsze najnowsza klatka = mniejsze opóźnienie
-  } else {
-    config.fb_count    = 1;
-    config.fb_location = CAMERA_FB_IN_DRAM;
-    config.grab_mode   = CAMERA_GRAB_WHEN_EMPTY;
-  }
+  // Jeden bufor wystarczy: zdjęcia robimy pojedynczo, na żądanie.
+  config.fb_count    = 1;
+  config.grab_mode   = CAMERA_GRAB_WHEN_EMPTY;
+  config.fb_location = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -102,48 +101,48 @@ bool initCamera() {
   return true;
 }
 
-// ---------- Strumień MJPEG (port 81) ----------
-static const char* STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=frame";
-static const char* STREAM_BOUNDARY     = "\r\n--frame\r\n";
-static const char* STREAM_PART         = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+// ---------- Zdjęcie (port 81, /capture) ----------
+static esp_err_t captureHandler(httpd_req_t* req) {
+  // Pierwsza klatka po przerwie może być stara (zrobiona wcześniej i czekająca w buforze),
+  // więc ją odrzucamy i bierzemy następną - zdjęcie jest wtedy aktualne.
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (fb) esp_camera_fb_return(fb);
+  fb = esp_camera_fb_get();
 
-static esp_err_t streamHandler(httpd_req_t* req) {
-  esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
-  if (res != ESP_OK) return res;
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
 
-  char partBuf[64];
-  while (true) {
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-      res = ESP_FAIL;
-    } else {
-      size_t hlen = snprintf(partBuf, sizeof(partBuf), STREAM_PART, (unsigned)fb->len);
-      res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
-      if (res == ESP_OK) res = httpd_resp_send_chunk(req, partBuf, hlen);
-      if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
-      esp_camera_fb_return(fb);
-    }
-    if (res != ESP_OK) break;   // klient się rozłączył
-    vTaskDelay(1);
+  if (!fb) {
+    Serial.println("Zdjecie: brak klatki");
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_send(req, "brak klatki", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
   }
+
+  httpd_resp_set_type(req, "image/jpeg");
+  httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=autko.jpg");
+  esp_err_t res = httpd_resp_send(req, (const char*)fb->buf, fb->len);
+  Serial.printf("Zdjecie: %u B\n", (unsigned)fb->len);
+  esp_camera_fb_return(fb);
   return res;
 }
 
-void startStreamServer() {
+void startPhotoServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
 
-  httpd_uri_t streamUri = {
-    .uri      = "/stream",
+  httpd_uri_t captureUri = {
+    .uri      = "/capture",
     .method   = HTTP_GET,
-    .handler  = streamHandler,
+    .handler  = captureHandler,
     .user_ctx = NULL
   };
 
   httpd_handle_t server = NULL;
   if (httpd_start(&server, &config) == ESP_OK) {
-    httpd_register_uri_handler(server, &streamUri);
+    httpd_register_uri_handler(server, &captureUri);
+  } else {
+    Serial.println("Nie udalo sie uruchomic serwera zdjec");
   }
 }
 
@@ -193,6 +192,13 @@ void setup() {
   Serial.begin(115200);   // USB - tylko podgląd/debug
   Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
 
+  // Ciche logi: błędy po zamknięciu połączenia przez przeglądarkę są nieszkodliwe
+  esp_log_level_set("httpd_txrx", ESP_LOG_NONE);
+  esp_log_level_set("httpd_uri", ESP_LOG_NONE);
+  esp_log_level_set("cam_hal", ESP_LOG_ERROR);
+
+  Serial.printf("PSRAM: %s, wolne: %u B\n", psramFound() ? "TAK" : "NIE", (unsigned)ESP.getFreePsram());
+
   // Access point: stały adres 192.168.4.1, nie potrzeba routera
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS);
@@ -202,7 +208,8 @@ void setup() {
 
   // Gdy kamera nie wystartuje, most UART <-> WebSocket nadal działa
   if (initCamera()) {
-    startStreamServer();
+    startPhotoServer();
+    Serial.println("Kamera OK, zdjecie: http://192.168.4.1:81/capture");
   }
 
   webSocket.begin();
@@ -213,4 +220,5 @@ void setup() {
 void loop() {
   webSocket.loop();
   forwardUartToWs();
+  delay(1);   // oddaje czas procesora innym zadaniom (WiFi, serwer zdjęć)
 }
