@@ -1,47 +1,27 @@
-/*
- * TEST SONARU HC-SR04
- * TRIG -> A3
- * ECHO -> A2
- * Serwo (z sonarem) -> D9 - ustawiane na środek (90°), żeby sonar patrzył prosto
- * LCD I2C 16x2      -> SDA = A4, SCL = A5
- *
- * Ekran:
- *   Odl:  123.4 cm  *     <- bieżąca odległość ('*' miga przy każdym pomiarze)
- *     5- 230cm E  3       <- min-max od startu, E = liczba pomiarów bez echa
- *
- * Wymagana biblioteka: "LiquidCrystal I2C" (Frank de Brabander)
- * Servo.h jest wbudowana w Arduino IDE.
- */
+// Błażej Pawluk
+// test sonaru HC-SR04
 
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <Servo.h>
 
-// ---------------- KONFIGURACJA ----------------
-const uint8_t LCD_ADDR = 0x27;            // jeśli ekran pusty, spróbuj 0x3F
-const uint8_t TRIG_PIN = A3;              // zamień z ECHO_PIN, jeśli masz odwrotnie
+// konfiguracja LCD
+const uint8_t LCD_ADDR = 0x27;
+const uint8_t LCD_COLS = 16;
+const uint8_t LCD_ROWS = 2;
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+
+// konfiguracja sonaru
+const uint8_t TRIG_PIN = A3;
 const uint8_t ECHO_PIN = A2;
-const uint8_t SERVO_PIN = 9;
-
-const bool CENTER_SERVO = false;           // false = nie ruszaj serwa
-const uint8_t SERVO_CENTER_DEG = 90;
-
-const unsigned long ECHO_TIMEOUT_US = 25000; // ~4.3 m, dalej = brak echa
-const unsigned int MIN_VALID_MM = 20;        // poniżej 2 cm HC-SR04 jest niewiarygodny
-const unsigned int MAX_VALID_MM = 4000;      // powyżej 4 m też
-const unsigned long MEASURE_MS = 100;        // odstęp między pomiarami (min. 60 ms)
-// ----------------------------------------------
-
-LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
-Servo servo;
+const unsigned long ECHO_TIMEOUT_US = 25000;
+const unsigned int MIN_VALID_MM = 34;
+const unsigned int MAX_VALID_MM = 4000;
+const unsigned long MEASURE_MS = 100;
 
 unsigned int minMm = 0xFFFF;
 unsigned int maxMm = 0;
-unsigned int errors = 0;
-bool blink = false;
-unsigned long prevMillis = 0;
 
-// Zwraca odległość w mm albo 0, gdy brak poprawnego echa
+// mierzy odległość do przeszkody sonarem w mm
 unsigned int measureMm() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -58,6 +38,7 @@ unsigned int measureMm() {
   return mm;
 }
 
+unsigned long prevMillis = 0;
 void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
@@ -65,19 +46,6 @@ void setup() {
 
   lcd.init();
   lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("Test sonaru");
-  lcd.setCursor(0, 1);
-  lcd.print(CENTER_SERVO ? "Serwo -> 90 st." : "Serwo pominiete");
-
-  if (CENTER_SERVO) {
-    servo.attach(SERVO_PIN);
-    servo.write(SERVO_CENTER_DEG);
-    delay(800);        // czas na dojechanie
-    servo.detach();    // odłączenie: brak drgań i poboru prądu w trakcie testu
-  }
-
-  delay(1000);
   lcd.clear();
 }
 
@@ -87,25 +55,22 @@ void loop() {
   prevMillis = now;
 
   unsigned int mm = measureMm();
-  blink = !blink;
   char line[17];
-
-  lcd.setCursor(0, 0);
+  lcd.setCursor(0,0);
   if (mm == 0) {
-    errors++;
-    snprintf(line, sizeof(line), "Brak echa      %c", blink ? '*' : ' ');
+    snprintf(line, sizeof(line), "Brak echa       ");
   } else {
     if (mm < minMm) minMm = mm;
     if (mm > maxMm) maxMm = mm;
-    snprintf(line, sizeof(line), "Odl: %4u.%u cm %c", mm / 10, mm % 10, blink ? '*' : ' ');
+    snprintf(line, sizeof(line), "Odl: %4u.%u cm  ", mm / 10, mm % 10);
   }
   lcd.print(line);
 
   lcd.setCursor(0, 1);
   if (maxMm == 0) {
-    snprintf(line, sizeof(line), "  -- -- cm E%4u", errors);
+    snprintf(line, sizeof(line), "  -- -- cm");
   } else {
-    snprintf(line, sizeof(line), "%4u-%4ucm E%4u", minMm / 10, maxMm / 10, errors);
+    snprintf(line, sizeof(line), "%4u-%4ucm", minMm / 10, maxMm / 10);
   }
   lcd.print(line);
 }
