@@ -1,25 +1,18 @@
-/*
-  AUTKO - ESP32-CAM (AI Thinker) - wersja ze zdjęciami (bez transmisji na żywo)
+// Błażej Pawluk
+// plik testowy komunikacji przez UART z Arduino UNO i przez Access Point ze stroną internetową
 
-  - własna sieć WiFi (access point): SSID "AUTKO", hasło "password", adres 192.168.4.1
-  - WebSocket na porcie 80:  ws://192.168.4.1:80/
-      linia z UART (Arduino) -> wszyscy klienci WebSocket
-      tekst z WebSocket      -> UART (Arduino), z dopisanym '\n'
-  - zdjęcie (JPEG) na żądanie:  http://192.168.4.1:81/capture
+// połączenie z Arduino UNO (przez 2-kierunkowy konwerter poziomów):
+// IO14 - D0 (RX)
+// IO13 - D1 (TX)
 
-  Zdjęcie jest robione tylko wtedy, gdy strona o nie poprosi. Dzięki temu kamera
-  nie pracuje non-stop i nie blokuje WiFi ani mostu UART <-> WebSocket.
-
-  POŁĄCZENIE UART Z ARDUINO (przez konwerter poziomów 3.3V <-> 5V):
-      ESP32 GPIO13 (RX)  <-  Arduino D1 (TX)
-      ESP32 GPIO14 (TX)  ->  Arduino D0 (RX)
-      wspólna masa (GND)
-
-  Arduino IDE:
-    - pakiet "esp32 by Espressif" w wersji 2.0.17 (w 3.x kamera nie działała)
-    - płytka: "AI Thinker ESP32-CAM", PSRAM: Enabled
-    - biblioteka: "WebSockets" (Markus Sattler / arduinoWebSockets)
-*/
+// połączenie ze stroną internetową
+// sieć Wi-Fi (tworzona przez ESP32-CAM): SSID: AUTKO, hasło: password, adres: 192.168.4.1
+//  WebSocket na porcie 80: ws://192.168.4.1:80/
+//    linia otrzymana przez Serial UART > wszyscy klienci WebSocketa
+//    tekst z WebSocketa > Serial UART z dopisanym '/n'
+//  WebSocket na porcie 81: ws://192.168.4.1:81/
+//    zdjęcie robione na żądanie (http://192.168.4.1:81/capture)
+// (możliwość robienia zdjęcia na żądanie zamiast nadawania obrazu na żywo z powodu zbyt dużego obciążenia zasilania)
 
 #include <WiFi.h>
 #include <WebSocketsServer.h>
@@ -27,42 +20,37 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 
-// ---------- Konfiguracja ----------
+// konfiguracja AccessPoint
 const char* AP_SSID = "AUTKO";
 const char* AP_PASS = "password";
 
+// konfiguracja UART
 #define UART_RX_PIN 13
 #define UART_TX_PIN 14
-#define UART_BAUD   115200      // musi być takie samo jak w Arduino
+const unsigned long UART_BAUD = 38400;
 
-// Rozdzielczość zdjęcia: FRAMESIZE_QQVGA (160x120), QVGA (320x240), VGA (640x480),
-// SVGA (800x600), XGA (1024x768), SXGA (1280x1024), UXGA (1600x1200).
-// Większe zdjęcie = dłuższe robienie i wysyłanie (VGA zajmuje ok. pół sekundy).
-#define CAM_FRAME_SIZE   FRAMESIZE_VGA
-#define CAM_JPEG_QUALITY 12              // 10 (najlepsza) .. 63 (najgorsza)
-#define CAM_XCLK_HZ      10000000        // przy braku problemów można podnieść do 20000000
+// konfiguracja kamery
+#define CAM_FRAME_SIZE   FRAMESIZE_VGA // rozdzielczosc (640x480)
+#define CAM_JPEG_QUALITY 12            // 10-63 (niższa - lepsza)
+#define CAM_XCLK_HZ      20000000      // częstotliwość sygnału zegarowego
+// piny kamery
+#define PWDN_GPIO_NUM  32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM   0
+#define SIOD_GPIO_NUM  26
+#define SIOC_GPIO_NUM  27
+#define Y9_GPIO_NUM    35
+#define Y8_GPIO_NUM    34
+#define Y7_GPIO_NUM    39
+#define Y6_GPIO_NUM    36
+#define Y5_GPIO_NUM    21
+#define Y4_GPIO_NUM    19
+#define Y3_GPIO_NUM    18
+#define Y2_GPIO_NUM     5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM  23
+#define PCLK_GPIO_NUM  22
 
-// ---------- Piny kamery (AI Thinker) ----------
-#define PWDN_GPIO_NUM   32
-#define RESET_GPIO_NUM  -1
-#define XCLK_GPIO_NUM    0
-#define SIOD_GPIO_NUM   26
-#define SIOC_GPIO_NUM   27
-#define Y9_GPIO_NUM     35
-#define Y8_GPIO_NUM     34
-#define Y7_GPIO_NUM     39
-#define Y6_GPIO_NUM     36
-#define Y5_GPIO_NUM     21
-#define Y4_GPIO_NUM     19
-#define Y3_GPIO_NUM     18
-#define Y2_GPIO_NUM      5
-#define VSYNC_GPIO_NUM  25
-#define HREF_GPIO_NUM   23
-#define PCLK_GPIO_NUM   22
-
-WebSocketsServer webSocket(80);
-
-// ---------- Kamera ----------
 bool initCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -88,9 +76,8 @@ bool initCamera() {
   config.frame_size   = CAM_FRAME_SIZE;
   config.jpeg_quality = CAM_JPEG_QUALITY;
 
-  // Jeden bufor wystarczy: zdjęcia robimy pojedynczo, na żądanie.
-  config.fb_count    = 1;
-  config.grab_mode   = CAMERA_GRAB_WHEN_EMPTY;
+  config.fb_count = 1;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
 
   esp_err_t err = esp_camera_init(&config);
@@ -101,10 +88,8 @@ bool initCamera() {
   return true;
 }
 
-// ---------- Zdjęcie (port 81, /capture) ----------
+// handler robienia zdjęcia
 static esp_err_t captureHandler(httpd_req_t* req) {
-  // Pierwsza klatka po przerwie może być stara (zrobiona wcześniej i czekająca w buforze),
-  // więc ją odrzucamy i bierzemy następną - zdjęcie jest wtedy aktualne.
   camera_fb_t* fb = esp_camera_fb_get();
   if (fb) esp_camera_fb_return(fb);
   fb = esp_camera_fb_get();
@@ -127,14 +112,15 @@ static esp_err_t captureHandler(httpd_req_t* req) {
   return res;
 }
 
+// port 81: do obsługi kamery
 void startPhotoServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
 
   httpd_uri_t captureUri = {
-    .uri      = "/capture",
-    .method   = HTTP_GET,
-    .handler  = captureHandler,
+    .uri = "/capture",
+    .method = HTTP_GET,
+    .handler = captureHandler,
     .user_ctx = NULL
   };
 
@@ -146,7 +132,11 @@ void startPhotoServer() {
   }
 }
 
-// ---------- WebSocket -> UART ----------
+// WebSocket
+WebSocketsServer webSocket(80);
+
+// obsługa przesyłania sygnałów
+// WebSocket > UART
 void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case WStype_TEXT:
@@ -166,9 +156,10 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
   }
 }
 
-// ---------- UART -> WebSocket ----------
+// UART > WebSocket
+const uint8_t RX_BUF_SIZE = 64;
 void forwardUartToWs() {
-  static char buf[128];
+  static char buf[RX_BUF_SIZE];
   static size_t len = 0;
 
   while (Serial2.available() > 0) {
@@ -189,36 +180,30 @@ void forwardUartToWs() {
 }
 
 void setup() {
-  Serial.begin(115200);   // USB - tylko podgląd/debug
-  Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
+  Serial.begin(115200); // podgląd / debug
+  Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN); // Serial UART
 
-  // Ciche logi: błędy po zamknięciu połączenia przez przeglądarkę są nieszkodliwe
+  // ignorowane błędy
   esp_log_level_set("httpd_txrx", ESP_LOG_NONE);
   esp_log_level_set("httpd_uri", ESP_LOG_NONE);
   esp_log_level_set("cam_hal", ESP_LOG_ERROR);
 
-  Serial.printf("PSRAM: %s, wolne: %u B\n", psramFound() ? "TAK" : "NIE", (unsigned)ESP.getFreePsram());
-
-  // Access point: stały adres 192.168.4.1, nie potrzeba routera
+  // Access point: 192.168.4.1
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS);
-  WiFi.setSleep(false);   // mniejsze opóźnienia
+  WiFi.setSleep(false);
   Serial.print("AP: ");
   Serial.println(WiFi.softAPIP());
 
-  // Gdy kamera nie wystartuje, most UART <-> WebSocket nadal działa
-  if (initCamera()) {
-    startPhotoServer();
-    Serial.println("Kamera OK, zdjecie: http://192.168.4.1:81/capture");
-  }
+  if (initCamera()) startPhotoServer();
 
   webSocket.begin();
   webSocket.onEvent(onWsEvent);
-  webSocket.enableHeartbeat(15000, 3000, 2);   // wykrywa martwe połączenia
+  webSocket.enableHeartbeat(15000, 3000, 2);
 }
 
 void loop() {
   webSocket.loop();
   forwardUartToWs();
-  delay(1);   // oddaje czas procesora innym zadaniom (WiFi, serwer zdjęć)
+  delay(1); // oddanie czasu procesora na Wi-Fi i zdjęcia
 }

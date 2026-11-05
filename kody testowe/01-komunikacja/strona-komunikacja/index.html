@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8">
+    <title>01-komunikacja</title>
+  </head>
+
+  <body>
+    <h1>01-komunikacja testowa</h1>
+    <p>Arduino UNO wysyła losowe dane testowe - nie zbiera realnych danych z sensorów, a dane, które są do Arduino wysyłane wyświetla tylko na LCD - bez przetwarzania</p>
+    <p>Połączenie z autkiem: <span id="connection-status">rozłączono</span></p>
+    <p>Ostatnia otrzmana ramka danych: <span id="last-received-data">brak</span></p>
+
+    <h2>Dane z Arduino</h2>
+    <p>Enkodery: lewy: <span id="enL">-</span>, prawy: <span id="enR">-</span></p>
+    <p>Sonar: <span id="sonar">-</span> cm</p>
+    <p>Akcelerometr: X: <span id="ax">-</span> g, Y: <span id="ay">-</span> g, Z: <span id="az">-</span> g</p>
+    <p>Żyroskop: X: <span id="gx">-</span> stopni, Y: <span id="gy">-</span> stopni, Z: <span id="gz">-</span> stopni</p>
+
+    <h2>Sterowanie</h2>
+    <p>
+      Silnik lewy: <input type="range" id="speedL" min="-255" max="255" value="0">
+      <span id="speedLVal">0</span>
+    </p>
+    <p>
+      Silnik prawy: <input type="range" id="speedR" min="-255" max="255" value="0">
+      <span id="speedRVal">0</span>
+    </p>
+    <p>
+      Prędkość dla przycisków: <input type="range" id="baseSpeed" min="0" max="255" value="180">
+      <span id="baseSpeedVal">180</span>
+    </p>
+    <p>
+      <button id="btnLeftFwd">Lewy przód</button>
+      <button id="btnRightFwd">Prawy przód</button>
+      <button id="btnBothFwd">Oba przód</button>
+      <button id="btnBothBack">Oba tył</button>
+      <button id="btnStop"><b>STOP</b></button>
+    </p>
+
+    <p>
+      Serwo: <input type="range" id="servo" min="45" max="135" value="90">
+      <span id="servoVal">90</span>°
+    </p>
+
+    <p>Sonar:</p>
+    <button id="btnTrig">TRIG</button>
+
+    <p>Ostatnie wysłane polecenie: <code id="lastCmd">-</code></p>
+
+    <h2>Kamera</h2>
+    <button id="btnShot">Zrób zdjęcie</button>
+    <p id="shotInfo">brak zdjęcia</p>
+    <img id="cam" alt="Tu pojawi się zdjęcie z kamery" width="640">
+
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </body>
+
+  <script src="script.js"></script>
+</html>
