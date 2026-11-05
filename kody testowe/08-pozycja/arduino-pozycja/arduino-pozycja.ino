@@ -10,7 +10,7 @@
 // enkodery:  A0 (lewy), A1 (prawy)
 // sonar:     A3 (TRIG), A2 (ECHO)
 // serwo:     D9
-// silniki (mostek H L298N): D3 (ENA), D4 (IN1), D5 (IN2) - lewy, D6 (ENB), D7 (IN3), D8 (IN4) - prawy
+// silniki (mostek H L298N): D6 (ENB), D7 (IN3), D8 (IN4) - lewy, D3 (ENA), D4 (IN1), D5 (IN2) - prawy
 // LCD i MPU: I2C (A4 - SDA, A5 - SCL dla LCD, SDA, SCL dla MPU)
 
 // co 0,2s wysyła linię z danymi z sensorów

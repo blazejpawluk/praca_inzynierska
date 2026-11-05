@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8">
+    <title>09-komunikacja-pozycja2</title>
+  </head>
+
+  <body>
+    <h1>09-komunikacja-pozycja2</h1>
+    <p>Arduino UNO wysyła realne dane z sensorów (enkodery, sonar, akcelerometr, żyroskop) i wykonuje otrzymane polecenia (serwo, TRIG sonaru, silniki)</p>
+    <p>Arduino wylicza pozycję i kąt autka (droga z enkoderów, kąt z żyroskopu, filtr Kalmana prędkości)</p>
+    <p>Połączenie z autkiem: <span id="connection-status">rozłączono</span></p>
+    <p>Ostatnia otrzmana ramka danych: <span id="last-received-data">brak</span></p>
+
+    <h2>Dane z Arduino</h2>
+    <p>Enkodery: lewy: <span id="enL">-</span>, prawy: <span id="enR">-</span></p>
+    <p>Sonar: <span id="sonar">-</span></p>
+    <p>Akcelerometr: X: <span id="ax">-</span> g, Y: <span id="ay">-</span> g, Z: <span id="az">-</span> g</p>
+    <p>Żyroskop: X: <span id="gx">-</span> stopni/s, Y: <span id="gy">-</span> stopni/s, Z: <span id="gz">-</span> stopni/s</p>
+    <p>Silniki: lewy: <span id="mL">-</span>, prawy: <span id="mR">-</span></p>
+
+    <h2>Pozycja</h2>
+    <p>Względem pozycji startowej (X - przód, Y - lewo, kąt - skręt w lewo)</p>
+    <p>X: <span id="posX">-</span> cm, Y: <span id="posY">-</span> cm, kąt: <span id="heading">-</span>°</p>
+    <p>Prędkość: <span id="vel">-</span> cm/s, poślizg: <span id="slip">-</span>, postój: <span id="still">-</span></p>
+    <button id="btnResetPos">Zeruj pozycję</button>
+
+    <h2>Sterowanie</h2>
+    <p>Silniki (przytrzymaj przycisk lub W/A/S/D, strzałki; spacja - stop):</p>
+    <p>
+      Prędkość: <input type="range" id="speed" min="0" max="255" value="180">
+      <span id="speedVal">180</span>
+    </p>
+    <table>
+      <tr><td></td><td><button class="drive" data-dir="forward">▲ przód</button></td><td></td></tr>
+      <tr>
+        <td><button class="drive" data-dir="left">◀ lewo</button></td>
+        <td><button id="btnStop">■ stop</button></td>
+        <td><button class="drive" data-dir="right">prawo ▶</button></td>
+      </tr>
+      <tr><td></td><td><button class="drive" data-dir="back">▼ tył</button></td><td></td></tr>
+    </table>
+
+    <p>
+      Serwo: <input type="range" id="servo" min="45" max="135" value="90">
+      <span id="servoVal">90</span>°
+    </p>
+
+    <p>Sonar:</p>
+    <button id="btnTrig">TRIG</button>
+
+    <p>Ostatnie wysłane polecenie: <code id="lastCmd">-</code></p>
+
+    <h2>Kamera</h2>
+    <button id="btnShot">Zrób zdjęcie</button>
+    <p id="shotInfo">brak zdjęcia</p>
+    <img id="cam" alt="Tu pojawi się zdjęcie z kamery" width="640">
+
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </body>
+
+  <script src="script.js"></script>
+</html>

@@ -4,11 +4,11 @@
 #include "silniki.h"
 
 // piny mostka H (ENA, ENB - PWM na Timer2 i Timer0, Timer1 zajęty przez serwo)
-const uint8_t ENA_PIN = 3; // lewy, prędkość
-const uint8_t IN1_PIN = 4; // lewy, kierunek
+const uint8_t ENA_PIN = 3; // prawy, prędkość
+const uint8_t IN1_PIN = 4; // prawy, kierunek
 const uint8_t IN2_PIN = 5;
-const uint8_t ENB_PIN = 6; // prawy, prędkość
-const uint8_t IN3_PIN = 7; // prawy, kierunek
+const uint8_t ENB_PIN = 6; // lewy, prędkość
+const uint8_t IN3_PIN = 7; // lewy, kierunek
 const uint8_t IN4_PIN = 8;
 
 const int MAX_SPEED = 255;
@@ -39,9 +39,9 @@ void setMotors(int l, int r) {
   speedR = constrain(r, -MAX_SPEED, MAX_SPEED);
   lastCmd = millis();
 
-  setSide(ENA_PIN, IN1_PIN, IN2_PIN, speedL);
-  // prawy silnik zamontowany odwrotnie - zamienione piny kierunku
-  setSide(ENB_PIN, IN4_PIN, IN3_PIN, speedR);
+  // oba silniki podłączone odwrotnie - zamienione piny kierunku
+  setSide(ENB_PIN, IN4_PIN, IN3_PIN, speedL);
+  setSide(ENA_PIN, IN2_PIN, IN1_PIN, speedR);
 }
 
 void stopMotors() {
