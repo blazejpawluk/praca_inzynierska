@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8">
+    <title>06-komunikacja-dane</title>
+  </head>
+
+  <body>
+    <h1>06-komunikacja-dane</h1>
+    <p>Arduino UNO wysyła realne dane z sensorów (enkodery, sonar, akcelerometr, żyroskop) i wykonuje otrzymane polecenia (serwo, TRIG sonaru) - bez obsługi silników</p>
+    <p>Połączenie z autkiem: <span id="connection-status">rozłączono</span></p>
+    <p>Ostatnia otrzmana ramka danych: <span id="last-received-data">brak</span></p>
+
+    <h2>Dane z Arduino</h2>
+    <p>Enkodery: lewy: <span id="enL">-</span>, prawy: <span id="enR">-</span></p>
+    <p>Sonar: <span id="sonar">-</span></p>
+    <p>Akcelerometr: X: <span id="ax">-</span> g, Y: <span id="ay">-</span> g, Z: <span id="az">-</span> g</p>
+    <p>Żyroskop: X: <span id="gx">-</span> stopni/s, Y: <span id="gy">-</span> stopni/s, Z: <span id="gz">-</span> stopni/s</p>
+
+    <h2>Sterowanie</h2>
+    <p>
+      Serwo: <input type="range" id="servo" min="45" max="135" value="90">
+      <span id="servoVal">90</span>°
+    </p>
+
+    <p>Sonar:</p>
+    <button id="btnTrig">TRIG</button>
+
+    <p>Ostatnie wysłane polecenie: <code id="lastCmd">-</code></p>
+
+    <h2>Kamera</h2>
+    <button id="btnShot">Zrób zdjęcie</button>
+    <p id="shotInfo">brak zdjęcia</p>
+    <img id="cam" alt="Tu pojawi się zdjęcie z kamery" width="640">
+
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </body>
+
+  <script src="script.js"></script>
+</html>
