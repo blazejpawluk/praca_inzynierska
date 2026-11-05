@@ -49,7 +49,6 @@ void setup() {
   servo.attach(SERVO_PIN);
   servo.writeMicroseconds(CENTER_US);
   delay(1500);
-  lcd.clear();
 
   lcd.init();
   lcd.backlight();
