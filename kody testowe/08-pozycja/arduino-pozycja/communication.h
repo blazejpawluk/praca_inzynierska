@@ -1,13 +1,15 @@
 // Błażej Pawluk
-// komunikacja przez UART z ESP32-CAM: odbieranie poleceń i wysyłanie danych
+// komunikacja przez UART z ESP32-CAM
 
-#include "komunikacja.h"
+#pragma once
+#include <Arduino.h>
 #include "lcd.h"
-#include "enkodery.h"
+#include "encoders.h"
 #include "sonar.h"
-#include "serwo.h"
-#include "zyroskop.h"
-#include "silniki.h"
+#include "servo.h"
+#include "mpu.h"
+#include "wheels.h"
+#include "position.h"
 
 // dane
 struct Data {
@@ -23,7 +25,6 @@ const uint8_t RX_BUF_SIZE = 64;
 char rxBuf[RX_BUF_SIZE];
 uint8_t rxLen;
 
-// obsługa odebranej linii
 void handleLine(const char* line) {
   showOnLCD(line);
 
@@ -36,10 +37,11 @@ void handleLine(const char* line) {
     if (comma) setMotors(atoi(line + 4), atoi(comma + 1));
   } else if (strcmp(line, "C:STOP") == 0) {
     stopMotors();
+  } else if (strcmp(line, "C:RESETPOS") == 0) {
+    resetPosition();
   }
 }
 
-// odczytywanie danych z Seriala UART
 void readSerial() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
@@ -54,7 +56,6 @@ void readSerial() {
   }
 }
 
-// zbieranie danych i wysyłanie przez Serial UART
 void sendData() {
   Data d;
 
@@ -67,8 +68,8 @@ void sendData() {
 
   // wysyłanie danych
   Serial.print(F("D:"));
-  Serial.print(d.enL);  Serial.print(',');
-  Serial.print(d.enR);  Serial.print(',');
+  Serial.print(d.enL); Serial.print(',');
+  Serial.print(d.enR); Serial.print(',');
   Serial.print(d.sonar, 1); Serial.print(',');
   Serial.print(d.ax, 2); Serial.print(',');
   Serial.print(d.ay, 2); Serial.print(',');
@@ -76,6 +77,13 @@ void sendData() {
   Serial.print(d.gx, 2); Serial.print(',');
   Serial.print(d.gy, 2); Serial.print(',');
   Serial.print(d.gz, 2); Serial.print(',');
-  Serial.print(d.mL);   Serial.print(',');
+  Serial.print(d.mL); Serial.print(',');
   Serial.println(d.mR);
+
+  // wysyłanie pozycji
+  Serial.print(F("P:"));
+  Serial.print(posX * 100, 1); Serial.print(',');
+  Serial.print(posY * 100, 1); Serial.print(',');
+  Serial.print(heading, 1); Serial.print(',');
+  Serial.println(vel * 100, 1);
 }

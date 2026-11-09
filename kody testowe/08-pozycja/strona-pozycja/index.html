@@ -7,8 +7,6 @@
 
   <body>
     <h1>08-pozycja</h1>
-    <p>Arduino UNO wysyła realne dane z sensorów (enkodery, sonar, akcelerometr, żyroskop) i wykonuje otrzymane polecenia (serwo, TRIG sonaru, silniki)</p>
-    <p>Strona wylicza pozycję i kąt autka na podstawie danych z akcelerometru i żyroskopu</p>
     <p>Połączenie z autkiem: <span id="connection-status">rozłączono</span></p>
     <p>Ostatnia otrzmana ramka danych: <span id="last-received-data">brak</span></p>
 
@@ -20,9 +18,9 @@
     <p>Silniki: lewy: <span id="mL">-</span>, prawy: <span id="mR">-</span></p>
 
     <h2>Pozycja</h2>
-    <p>Wyliczana z akcelerometru i żyroskopu względem miejsca kalibracji MPU (X - przód, Y - lewo, kąt - skręt w lewo)</p>
-    <p>X: <span id="posX">0.0</span> cm, Y: <span id="posY">0.0</span> cm, kąt: <span id="heading">0.0</span>°</p>
-    <p>Prędkość: <span id="speedNow">0.0</span> cm/s</p>
+    <p>Względem pozycji startowej (X - przód, Y - lewo, kąt - skręt w lewo)</p>
+    <p>X: <span id="posX">-</span> cm, Y: <span id="posY">-</span> cm, kąt: <span id="heading">-</span>°</p>
+    <p>Prędkość: <span id="vel">-</span> cm/s</p>
     <button id="btnResetPos">Zeruj pozycję</button>
 
     <h2>Sterowanie</h2>
@@ -60,6 +58,5 @@
     <pre id="log"></pre>
   </body>
 
-  <script src="pozycja.js"></script>
   <script src="script.js"></script>
 </html>

@@ -57,14 +57,31 @@ function showData(t) {
   $("mR").textContent = t.mR;
 }
 
+function parsePosition(line) {
+  if (!line.startsWith("P:")) return null;
+  const p = line.slice(2).split(",").map(Number);
+  if (p.length !== 4|| p.some(Number.isNaN)) return null;
+  const [x, y, heading, vel] = p;
+  return { x, y, heading, vel };
+}
+
+function showPosition(p) {
+  $("posX").textContent = p.x.toFixed(1);
+  $("posY").textContent = p.y.toFixed(1);
+  $("heading").textContent = p.heading.toFixed(1);
+  $("vel").textContent = p.vel.toFixed(1);
+}
+
 function onLine(line) {
   line = line.trim();
   if (!line) return;
   const t = parseData(line);
+  const p = parsePosition(line);
   if (t) {
     showData(t);
-    updatePosition(t);
     lastFrameTime = Date.now();
+  } else if (p) {
+    showPosition(p);
   } else {
     log("RX (nierozpoznane): " + line);
   }
@@ -95,6 +112,9 @@ servo.addEventListener("change", () => sendServo(true));
 
 // sonar
 $("btnTrig").onclick = () => sendCmd("C:TRIG");
+
+// pozycja
+$("btnResetPos").onclick = () => sendCmd("C:RESETPOS");
 
 // silniki
 const speed = $("speed");

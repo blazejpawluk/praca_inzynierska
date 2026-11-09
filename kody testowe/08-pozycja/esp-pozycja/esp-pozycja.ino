@@ -1,9 +1,5 @@
 // Błażej Pawluk
-// plik komunikacji przez UART z Arduino UNO i przez Access Point ze stroną internetową (bez zmian względem 01-komunikacja, 06-komunikacja-dane i 07-komunikacja-silniki)
-
-// połączenie z Arduino UNO (przez 2-kierunkowy konwerter poziomów):
-// IO14 - D0 (RX)
-// IO13 - D1 (TX)
+// plik komunikacji przez UART z Arduino UNO i przez Access Point ze stroną internetową
 
 // połączenie ze stroną internetową
 // sieć Wi-Fi (tworzona przez ESP32-CAM): SSID: AUTKO, hasło: password, adres: 192.168.4.1

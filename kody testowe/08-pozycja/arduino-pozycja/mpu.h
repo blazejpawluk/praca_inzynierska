@@ -1,9 +1,9 @@
 // Błażej Pawluk
-// obsługa żyroskopu i akcelerometru (MPU-6050)
-// akcelerometr: x - przód, y - lewo, z - góra
-// żyroskop: x - prawo w dół, y - przód w dół, z - skręt w lewo
+// obsługa żyroskopu i akcelerometru
 
-#include "zyroskop.h"
+#pragma once
+
+#include <Arduino.h>
 #include <Wire.h>
 
 // konfiguracja MPU
@@ -12,6 +12,14 @@ uint8_t whoAmI = 0;
 const uint16_t CALIB_SAMPLES = 500;
 const float ACC_LSB_PER_G = 16384.0; // zakres +-2 g
 const float GYRO_LSB_PER_DPS = 131.0; // zakres +-250 stopni/s
+const unsigned long SAMPLE_MS = 10;
+float gxOff = 0, gyOff = 0, gzOff = 0;
+float axOff = 0, ayOff = 0;
+
+// zbierane dane
+float ax = 0, ay = 0, az = 0; // g
+float gx = 0, gy = 0, gz = 0; // stopnie/s (po odjęciu offsetu)
+float tempC = 0;
 
 // rejestry MPU
 const uint8_t REG_WHO_AM_I = 0x75;
@@ -21,14 +29,6 @@ const uint8_t REG_SMPLRT_DIV = 0x19;
 const uint8_t REG_GYRO_CONFIG = 0x1B;
 const uint8_t REG_ACCEL_CONFIG = 0x1C;
 const uint8_t REG_ACCEL_XOUT_H = 0x3B;
-
-float ax, ay, az; // g
-float gx, gy, gz; // stopnie/s (po odjęciu offsetu)
-float tempC;
-float gxOff = 0, gyOff = 0, gzOff = 0;
-float axOff = 0, ayOff = 0;
-
-const unsigned long SAMPLE_MS = 10;
 
 bool deviceAt(uint8_t addr) {
   Wire.beginTransmission(addr);
@@ -59,14 +59,13 @@ bool initMPU() {
 
   readRegs(REG_WHO_AM_I, &whoAmI, 1);
 
-  bool ok = true;
-  ok &= writeReg(REG_PWR_MGMT_1, 0x01); // wybudzenie, zegar z PLL żyroskopu X
+  writeReg(REG_PWR_MGMT_1, 0x01); // wybudzenie, zegar z PLL żyroskopu X
   delay(100);
-  ok &= writeReg(REG_CONFIG, 0x03); // filtr DLPF ~44 Hz (tłumi drgania silników)
-  ok &= writeReg(REG_SMPLRT_DIV, 0x09); // 100 Hz
-  ok &= writeReg(REG_GYRO_CONFIG, 0x00); // +-250 stopni/s
-  ok &= writeReg(REG_ACCEL_CONFIG, 0x00); // +-2 g
-  return ok;
+  writeReg(REG_CONFIG, 0x03); // filtr DLPF ~44 Hz (tłumi drgania silników)
+  writeReg(REG_SMPLRT_DIV, 0x09); // 100 Hz
+  writeReg(REG_GYRO_CONFIG, 0x00); // +-250 stopni/s
+  writeReg(REG_ACCEL_CONFIG, 0x00); // +-2 g
+  return true;
 }
 
 bool readMPU(bool withOffset = true) {
