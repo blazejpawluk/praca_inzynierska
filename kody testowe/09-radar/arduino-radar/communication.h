@@ -42,8 +42,7 @@ void handleLine(const char* line) {
     stopMotors();
   } else if (strcmp(line, "C:RESETPOS") == 0) {
     resetPosition();
-  } else if (strncmp(line, "C:RADAR,", 8) == 0) {
-    // C:RADAR,od,do,krok,interwał
+  } else if (strcmp(line, "C:RADAR") == 0) {
     long p[4];
     uint8_t n = 0;
     const char* s = line + 8;
@@ -105,7 +104,6 @@ void sendData() {
 }
 
 void sendRadar() {
-  // kąt, odległość, pozycja robota w chwili pomiaru
   Serial.print(F("R:"));
   Serial.print(radarMeasAngle); Serial.print(',');
   Serial.print(sonarMm / 10.0, 1); Serial.print(',');

@@ -4,9 +4,6 @@ const CAPTURE_URL = `http://${ESP_HOST}:81/capture`;
 const SHOT_TIMEOUT_MS = 8000; // po tylu ms uznajemy zdjęcie za nieudane
 const SLIDER_THROTTLE_MS = 50;
 const MOTOR_REPEAT_MS = 200; // ponawianie polecenia jazdy (Arduino zatrzymuje silniki po 1s bez polecenia)
-const RADAR_FADE_MS = 10000; // po tylu ms punkt radaru jest najbardziej wygaszony
-const RADAR_REDRAW_MS = 100;
-const RADAR_BEAM_DEG = 30; // szerokość wiązki HC-SR04 - przeszkoda może leżeć w dowolnym miejscu łuku
 
 const $ = (id) => document.getElementById(id);
 
@@ -88,7 +85,6 @@ function onLine(line) {
   if (!line) return;
   const t = parseData(line);
   const p = parsePosition(line);
-  const r = parseRadar(line);
   if (t) {
     showData(t);
     lastFrameTime = Date.now();
@@ -115,7 +111,7 @@ function sendServo(force) {
   const now = Date.now();
   if (!force && now - lastServoSend < SLIDER_THROTTLE_MS) return;
   lastServoSend = now;
-  setRadarRunning(false); // ręczne ustawienie serwa wyłącza radar na Arduino
+  setRadarRunning(false);
   sendCmd(`C:S,${parseInt(servo.value, 10)}`);
 }
 
@@ -127,7 +123,7 @@ servo.addEventListener("change", () => sendServo(true));
 
 // sonar
 $("btnTrig").onclick = () => {
-  setRadarRunning(false); // ręczny pomiar wyłącza radar na Arduino
+  setRadarRunning(false);
   sendCmd("C:TRIG");
 };
 
@@ -209,11 +205,11 @@ window.addEventListener("blur", () => { if (driveDir) stopDrive(); });
 // radar
 const canvas = $("radar");
 const ctx = canvas.getContext("2d");
-const radarPoints = new Map(); // kąt -> ostatni pomiar { dist, x, y, heading, time }
-let radarSweep = null; // kąt ostatniego pomiaru
+const radarPoints = new Map();
+let radarSweep = null;
 
 function setRadarRunning(on, desc) {
-  $("radarStatus").textContent = on ? "włączony " + desc : "wyłączony";
+  $("radarStatus") = on ? "wyłączony" + desc : "wyłączony";
 }
 
 function showRadar(r) {
@@ -236,7 +232,10 @@ function drawRadar() {
     return [cx + r * Math.cos(a), cy - r * Math.sin(a)];
   };
   const line = (x1, y1, x2, y2) => {
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.beginPath(); 
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
   };
 
   ctx.fillStyle = "#001a00";
@@ -283,23 +282,7 @@ function drawRadar() {
     ctx.beginPath(); ctx.arc(x, y, 3, 0, 2 * Math.PI); ctx.fill();
   }
 
-  // wiązka ostatniego pomiaru
-  if (radarSweep !== null) {
-    const a = radarSweep * Math.PI / 180;
-    ctx.fillStyle = "rgba(127, 255, 127, 0.15)";
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -a - half, -a + half); ctx.closePath(); ctx.fill();
-    const [x, y] = toXY(radarSweep, R);
-    ctx.strokeStyle = "#7fff7f";
-    ctx.lineWidth = 2;
-    line(cx, cy, x, y);
-  }
-
-  // robot
-  ctx.fillStyle = "#7fff7f";
-  ctx.fillRect(cx - 6, cy - 4, 12, 8);
-}
-
-$("btnRadarStart").onclick = () => {
+  $("btnRadarStart").onclick = () => {
   const ids = ["radarFrom", "radarTo", "radarStep", "radarInterval"];
   const [from, to, step, interval] = ids.map((id) => parseInt($(id).value, 10));
   if ([from, to, step, interval].some(Number.isNaN)) {
@@ -320,6 +303,22 @@ $("btnRadarClear").onclick = () => {
 };
 
 setInterval(drawRadar, RADAR_REDRAW_MS);
+
+  // wiązka ostatniego pomiaru
+  if (radarSweep !== null) {
+    const a = radarSweep * Math.PI / 180;
+    ctx.fillStyle = "rgba(127, 255, 127, 0.15)";
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -a - half, -a + half); ctx.closePath(); ctx.fill();
+    const [x, y] = toXY(radarSweep, R);
+    ctx.strokeStyle = "#7fff7f";
+    ctx.lineWidth = 2;
+    line(cx, cy, x, y);
+  }
+
+  // robot
+  ctx.fillStyle = "#7fff7f";
+  ctx.fillRect(cx - 6, cy - 4, 12, 8);
+}
 
 // zdjęcie
 let shotBusy = false; // true, dopóki trwa pobieranie zdjęcia (nie wysyłamy kilku naraz)

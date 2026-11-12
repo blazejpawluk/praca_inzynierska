@@ -10,12 +10,12 @@
 const uint8_t SERVO_PIN = 9;
 
 // konfiguracja serwo
+const int MIN_US = 500;
 const int CENTER_US = 1500;
-const int MIN_US = 500; // domyślny zakres biblioteki Servo (544-2400 us) obcinałby skrajne kąty
 const int MAX_US = 2500;
-const int MAX_ANGLE = 80;
+const int MAX_ANGLE = 75;
 const float US_PER_DEG = 1856.0 / 180.0;
-int angle = 0; // względem środka: [-90,90]
+int angle = 0; // względem środka: [-45,45]
 Servo servo;
 
 void initServo() {
