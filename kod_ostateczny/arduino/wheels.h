@@ -5,7 +5,7 @@
   Biblioteka obsługująca sterowanie silnikami kół przez sterownik L298N
 
   Połączenie z L298N:
-    - silnik prawy: ENA=3, IN1=4, IN2=5
+    - silnik prawy: ENA=5, IN1=4, IN2=3
     - silnik lewy: ENB=6, IN3=7, IN4=8
 */
 
@@ -14,9 +14,9 @@
 #include <Arduino.h>
 
 // piny
-const uint8_t ENA_PIN = 3;
+const uint8_t ENA_PIN = 5;
 const uint8_t IN1_PIN = 4;
-const uint8_t IN2_PIN = 5;
+const uint8_t IN2_PIN = 3;
 const uint8_t ENB_PIN = 6;
 const uint8_t IN3_PIN = 7;
 const uint8_t IN4_PIN = 8; 

@@ -40,9 +40,9 @@ bool parseArgs(const char* s, long* out, uint8_t count) {
     if (*s < '0' || *s > '9') return false;
     
     long v = 0;
-    uint8_t digits = 0;
     while (*s >= '0' && *s <= '9') {
       v = v * 10 + (*s++ - '0');
+      if (v > 32767) return false;
     }
 
     out[i] = neg ? -v : v;
@@ -56,6 +56,8 @@ bool parseArgs(const char* s, long* out, uint8_t count) {
 }
 
 void handleLine(const char* line) {
+  if (line[0] == 'W' && connectionStatus != 2) return;
+
   long p[4];
 
   if (strncmp(line, "W:SERVO:", 8) == 0) {

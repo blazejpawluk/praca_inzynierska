@@ -2,7 +2,7 @@
   Błażej Pawluk
 
   Praca inżynierska: "Samojezdna platforma do skanowania pomieszczeń"
-  Biblioteka obsługująca sterowanie serwomechanizmem SG90 z zakresem ruchu [0,180] stopni
+  Biblioteka obsługująca sterowanie serwomechanizmem SG90 z zakresem ruchu [0,180] stopni (używane [15,165] z powodu ograniczeń mechanicznych)
 
   Połączenie: D9 (sterowanie PWM)
 */
@@ -24,7 +24,7 @@ int servoAngle; // [15,165]
 Servo servo;
 
 int angleToUs(int a) {
-  return 1500 + (int)lround((a - 90) * US_PER_DEG);
+  return CENTER_US + (int)lround((a - 90) * US_PER_DEG);
 }
 
 void setServoAngle(int a) {

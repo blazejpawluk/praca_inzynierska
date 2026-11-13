@@ -43,8 +43,9 @@ void stopRadar() {
 void updateRadar() {
   if (!radarOn || radarWaiting) return;
   if (millis() - lastRadarMs < radarInterval) return;
+  if (sonarBusy) return;
 
-  startSonar(); // jeśli pomiar już trwa, jego wynik zostanie użyty przez radar
+  startSonar();
   radarWaiting = true;
 }
 

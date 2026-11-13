@@ -25,8 +25,11 @@ void syncLCDCache() {
 }
 
 void initLCD() {
-  lcd.init();
+  Wire.begin();
   Wire.setClock(100000);
+  Wire.setWireTimeout(3000, true);
+  
+  lcd.init();
   lcd.backlight();
   lcd.clear();
   syncLCDCache();

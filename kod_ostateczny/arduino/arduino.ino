@@ -106,7 +106,10 @@ void loop() {
   // odbieranie danych z UART
   readSerial();
   if (connectionStatus == 2) {
-    if (prevStatus != 2) initPosition();
+    if (prevStatus != 2) {
+      initPosition();
+      printLCD(0, "CONNECTED");
+    }
     prevStatus = connectionStatus;
   
     // aktualizacja pozycji
@@ -117,19 +120,22 @@ void loop() {
     // aktualizacja radaru
     updateRadar();
 
-    // odbiór wyniku pomiaru sonaru (radar lub pomiar z sendData)
+    // odbiór wyniku pomiaru sonaru (radar lub pomiar z cyklu wysyłania)
     unsigned int mm;
     if (pollSonar(mm)) {
-      sendDist(mm);
+      queueDist(mm);
       if (radarWaiting) radarNextStep();
     }
 
-    // wysyłanie danych przez UART co SEND_INTERVAL ms
+    // rozpoczęcie cyklu wysyłania co SEND_INTERVAL ms
     unsigned long now = millis(); // ms
     if (now - lastSend >= SEND_INTERVAL) {
-      sendData();
+      startSendCycle();
       lastSend = now;
     }
+
+    // wysłanie najwyżej jednej wiadomości (bez blokowania)
+    sendNext();
   } else {
     if (prevStatus == 2) {
       printLCD(0, "DISCONNECTED");
@@ -141,6 +147,7 @@ void loop() {
     unsigned int mm;
     pollSonar(mm);
     radarWaiting = false;
+    resetSendCycle();
 
     prevStatus = connectionStatus;
     sendConnection();

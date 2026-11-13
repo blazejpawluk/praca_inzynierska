@@ -21,11 +21,10 @@ float velocity;
 
 // parametry techniczne
 const uint8_t WHEEL_DIAMETER = 65; // średnica kół [mm]
-const uint8_t PULSES_PRE_REV = 20; // liczba szelin tarczy enkodera
-const float DIST_PER_PULSE = PI * WHEEL_DIAMETER / PULSES_PRE_REV; // przejechana odległość na puls enkodera [mm]
+const uint8_t PULSES_PER_REV = 20; // liczba szelin tarczy enkodera
+const float DIST_PER_PULSE = PI * WHEEL_DIAMETER / PULSES_PER_REV; // przejechana odległość na puls enkodera [mm]
 
 // stałe
-const float G = 9.81;
 const uint8_t ENC_WINDOW = 10; // do wyliczenia prędkości używamy tyle ostatnich pomiarów z enkoderów
 
 // zmienne systemu
@@ -40,6 +39,9 @@ unsigned long prevUs;
 
 void initPosition() {
   readEncoders(prevL, prevR);
+  memset(ringPulses, 0, sizeof(ringPulses));
+  memset(ringDtUs, 0, sizeof(ringDtUs));
+  prevGz = 0;
   prevUs = micros();
 }
 

@@ -25,12 +25,14 @@ const unsigned int MIN_VALID_MM = 34;
 const unsigned int MAX_VALID_MM = 4000;
 
 // stan pomiaru
-volatile bool sonarBusy = false;  // pomiar w toku
-volatile bool echoHigh = false;   // zarejestrowano początek echa w bieżącym pomiarze
-volatile bool echoReady = false;  // zarejestrowano koniec echa w bieżącym pomiarze
+volatile bool sonarBusy = false; // pomiar w toku
+volatile bool echoHigh = false; // zarejestrowano początek echa w bieżącym pomiarze
+volatile bool echoReady = false; // zarejestrowano koniec echa w bieżącym pomiarze
 volatile unsigned long echoStart = 0;
 volatile unsigned long echoUs = 0;
 unsigned long trigUs = 0;
+extern int servoAngle;
+int sonarAngle = 0; // kąt serwa w chwili wyzwolenia pomiaru
 
 void initSonar() {
   pinMode(TRIG, OUTPUT);
@@ -46,6 +48,7 @@ void startSonar() {
   echoReady = false;
   sonarBusy = true;
   interrupts();
+  sonarAngle = servoAngle;
 
   digitalWrite(TRIG, LOW);
   delayMicroseconds(2);

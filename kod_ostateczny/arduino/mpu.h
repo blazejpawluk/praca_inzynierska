@@ -27,6 +27,12 @@
 #define MPU_REG_PWR_MGMT_2   0x6C // usypianie pojedynczych osi
 #define MPU_REG_WHO_AM_I     0x75 // identyfikator układu
 
+// wartości WHO_AM_I (niezależne od adresu I2C ustawianego pinem AD0)
+#define MPU_WHO_AM_I_6050    0x68 // oryginalny MPU6050
+#define MPU_WHO_AM_I_6500    0x70 // MPU6500 montowany w części modułów GY-521
+#define MPU_WHO_AM_I_CLONE1  0x72 // zamiennik MPU6050
+#define MPU_WHO_AM_I_CLONE2  0x98 // zamiennik MPU6050
+
 // ustawienia
 #define MPU_ACCEL_FS         0    // zakres akcelerometru [+-2g]
 #define MPU_GYRO_FS          0    // zakres żyroskopu [+- 250 stopni/s]
@@ -64,11 +70,18 @@ uint8_t whoAmIMPU() {
   return id;
 }
 
+bool isMPU() {
+  uint8_t id = whoAmIMPU();
+  return id == MPU_WHO_AM_I_6050 || id == MPU_WHO_AM_I_6500 ||
+         id == MPU_WHO_AM_I_CLONE1 || id == MPU_WHO_AM_I_CLONE2;
+}
+
 bool initMPU() {
   Wire.begin();
   Wire.setClock(100000);
   Wire.setWireTimeout(3000, true);
  
+  if (!isMPU()) return false;
   if (!mpuWriteReg(MPU_REG_PWR_MGMT_1, 0x80)) return false;
   delay(100);
  
