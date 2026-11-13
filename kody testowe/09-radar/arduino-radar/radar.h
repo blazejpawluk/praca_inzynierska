@@ -28,7 +28,7 @@ int radarMeasurementAngle = MIN_RADAR_ANGLE; // kąt ostatniego pomiaru
 int radarAngle = MIN_RADAR_ANGLE; // obecny kąt serva
 int8_t radarDir = 1;
 unsigned long radarWait = 0;
-unsgined long lastRadarMs = 0;
+unsigned long lastRadarMs = 0;
 
 void startRadar(int from, int to, int step, long interval) {
   radarFrom = constrain(from, MIN_RADAR_ANGLE, MAX_RADAR_ANGLE);
