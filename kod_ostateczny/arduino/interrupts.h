@@ -17,7 +17,7 @@
 #include "sonar.h"
 
 const uint8_t PCINT1_PINS = ENL_BIT | ENR_BIT | ECHO_BIT;
-volatile uint8_t prevState = 0;
+uint8_t prevState = 0;
 
 // wywołać po initEncoders() i initSonar()
 void initInterrupts() {

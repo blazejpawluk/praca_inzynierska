@@ -50,8 +50,6 @@ void startSonar() {
   interrupts();
   sonarAngle = servoAngle;
 
-  digitalWrite(TRIG, LOW);
-  delayMicroseconds(2);
   digitalWrite(TRIG, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG, LOW);

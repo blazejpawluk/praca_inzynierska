@@ -35,12 +35,16 @@ int8_t dirL, dirR;
 int16_t ringPulses[ENC_WINDOW];
 uint32_t ringDtUs[ENC_WINDOW];
 uint8_t ringIdx = 0;
+long sumPulses = 0;       // suma ringPulses (aktualizowana przyrostowo)
+unsigned long sumUs = 0;  // suma ringDtUs (aktualizowana przyrostowo)
 unsigned long prevUs;
 
 void initPosition() {
   readEncoders(prevL, prevR);
   memset(ringPulses, 0, sizeof(ringPulses));
   memset(ringDtUs, 0, sizeof(ringDtUs));
+  sumPulses = 0;
+  sumUs = 0;
   prevGz = 0;
   prevUs = micros();
 }
@@ -52,26 +56,26 @@ void resetPosition() {
   velocity = 0;
 }
 
-float encodeVelocity(long dl, long dr, float dt) {
+float encodeVelocity(long dl, long dr, unsigned long dtUs) {
   if (speedL != 0) dirL = speedL > 0 ? 1 : -1;
   if (speedR != 0) dirR = speedR > 0 ? 1 : -1;
 
-  ringPulses[ringIdx] = dirL * dl + dirR * dr;
-  ringDtUs[ringIdx] = dt * 1e6;
+  // zamiana najstarszej próbki na nową: sumy aktualizowane bez przechodzenia całego bufora
+  int16_t pulses = dirL * dl + dirR * dr;
+  sumPulses += pulses - ringPulses[ringIdx];
+  sumUs += dtUs - ringDtUs[ringIdx];
+  ringPulses[ringIdx] = pulses;
+  ringDtUs[ringIdx] = dtUs;
   ringIdx = (ringIdx + 1) % ENC_WINDOW;
 
-  long pulses = 0; unsigned long us = 0;
-  for (uint8_t i = 0; i < ENC_WINDOW; i++) {
-    pulses += ringPulses[i];
-    us += ringDtUs[i];
-  }
-  if (us == 0) return 0.0;
-  return pulses * DIST_PER_PULSE / 2 / (us / 1e6);
+  if (sumUs == 0) return 0.0;
+  return sumPulses * DIST_PER_PULSE / 2 / (sumUs / 1e6);
 }
 
 void updatePosition() {
   unsigned long nowUs = micros();
-  float dt = (nowUs - prevUs) / 1e6;
+  unsigned long dtUs = nowUs - prevUs;
+  float dt = dtUs / 1e6;
   prevUs = nowUs;
 
   unsigned long l, r;
@@ -79,7 +83,7 @@ void updatePosition() {
   long dl = (long)(l - prevL);
   long dr = (long)(r - prevR);
   prevL = l; prevR = r;
-  velocity = encodeVelocity(dl, dr, dt);
+  velocity = encodeVelocity(dl, dr, dtUs);
 
   float w = 0; readGz(w);
   angle += (prevGz + w) / 2 * dt;

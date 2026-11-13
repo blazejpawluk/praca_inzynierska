@@ -25,8 +25,8 @@ const uint8_t ENR_BIT = 0b010; // PC1 w rejestrze PINC
 const unsigned long DEBOUNCE_US = 2000;
 volatile unsigned long enL = 0;
 volatile unsigned long enR = 0;
-volatile unsigned long lastL = 0;
-volatile unsigned long lastR = 0;
+unsigned long lastL = 0;
+unsigned long lastR = 0;
 
 void initEncoders() {
   pinMode(ENL, INPUT);

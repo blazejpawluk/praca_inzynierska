@@ -21,7 +21,6 @@
 #define MPU_REG_INT_ENABLE   0x38 // włączenie przerwań
 #define MPU_REG_INT_STATUS   0x3A // flagi przerwań (m.in. DATA_RDY)
 #define MPU_REG_ACCEL_XOUT_H 0x3B // początek bloku 14 bajtów danych
-#define MPU_REG_TEMP_OUT_H   0x41 // temperatura
 #define MPU_REG_GYRO_XOUT_H  0x43 // żyroskop
 #define MPU_REG_PWR_MGMT_1   0x6B // zasilanie, reset, źródło zegara
 #define MPU_REG_PWR_MGMT_2   0x6C // usypianie pojedynczych osi
@@ -38,6 +37,9 @@
 #define MPU_GYRO_FS          0    // zakres żyroskopu [+- 250 stopni/s]
 #define MPU_DLPF_CFG         3    // filtr DLPF (szumu)
 #define MPU_SMPLRT_DIV       4    // częstotliwość próbkowania (200 Hz, próbki co 5ms)
+#define MPU_SAMPLE_US        ((MPU_SMPLRT_DIV + 1) * 1000UL) // okres próbki (1 kHz przy włączonym DLPF / (1 + dzielnik))
+#define MPU_POLL_US          (MPU_SAMPLE_US * 9 / 10)        // od ostatniego odczytu pytamy o nową próbkę dopiero po tym czasie
+                                                             // (90%, aby opóźnienia pętli nie powodowały gubienia próbek)
 #define MPU_ACCEL_LSB_PER_G  (16384.0f / (1 << MPU_ACCEL_FS)) // czułość LSB na 1 g
 #define MPU_GYRO_LSB_PER_DPS (131.0f / (1 << MPU_GYRO_FS))    // czułość LSB na 1 °/s
 
@@ -77,10 +79,6 @@ bool isMPU() {
 }
 
 bool initMPU() {
-  Wire.begin();
-  Wire.setClock(100000);
-  Wire.setWireTimeout(3000, true);
- 
   if (!isMPU()) return false;
   if (!mpuWriteReg(MPU_REG_PWR_MGMT_1, 0x80)) return false;
   delay(100);

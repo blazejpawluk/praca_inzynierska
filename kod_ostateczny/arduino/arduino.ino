@@ -6,7 +6,7 @@
 
   Podłączone komponenty:
     - 4 silniki DC z przekładnią sterowane przez sterownik 2-osiowy L298N
-      piny sterujące: ENA=3, IN1=4, IN2=5, ENB=6, IN3=7, IN4=8
+      piny sterujące: ENA=5, IN1=4, IN2=3, ENB=6, IN3=7, IN4=8
     - ESP32-CAM
       połączenie UART: RX=D0, TX=D1 (przez konwerter poziomów logicznych 5V-3.3V)
     - wyświetlacz LCD 16x2 I2C
@@ -40,7 +40,6 @@ unsigned long lastSend = 0; // ms
 
 uint8_t connectionStatus;
 int prevStatus;
-extern bool radarOn;
 
 void setup() {
   // inicjalizacja LCD
@@ -73,24 +72,19 @@ void setup() {
   }
 
   // oczekiwanie na połączenie
-  connectionStatus = 0;
   while (connectionStatus == 0) {
-    sendConnection();
-    delay(100);
+    requestConnection();
     readSerial();
 
     printLCD(0, "WAITING FOR WIFI");
   }
   while (connectionStatus == 1) {
-    sendConnection();
-    delay(100);
+    requestConnection();
     readSerial();
 
     printLCD(0, "CONNECT ON YOUR");
     printLCD(1, "DEVICE");
   }
-
-  radarOn = false;
 
   // inicjalizacja pozycji
   initPosition();
@@ -105,18 +99,23 @@ void setup() {
 void loop() {
   // odbieranie danych z UART
   readSerial();
+
+  // wyświetlenie ostatniej komendy na LCD (najwyżej co LCD_REFRESH_MS)
+  showLastCommand();
+
   if (connectionStatus == 2) {
     if (prevStatus != 2) {
       initPosition();
       printLCD(0, "CONNECTED");
+      printLCD(1, "READY TO WORK");
     }
     prevStatus = connectionStatus;
 
     // zatrzymanie silników po braku komend z frontendu
     checkCmdTimeout();
 
-    // aktualizacja pozycji
-    if (dataReadyMPU()) {
+    // aktualizacja pozycji (o nową próbkę MPU pytamy dopiero, gdy mogła już powstać)
+    if (micros() - prevUs >= MPU_POLL_US && dataReadyMPU()) {
       updatePosition();
     }
     
@@ -141,19 +140,19 @@ void loop() {
     sendNext();
   } else {
     if (prevStatus == 2) {
+      setMotors(0,0);
+      
+      lastCmdPending = false;
       printLCD(0, "DISCONNECTED");
       printLCD(1, "WAITING");
+      
+      // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
+      sonarBusy = false;
+      radarWaiting = false;
+      resetSendCycle();
     }
-    setMotors(0,0);
-
-    // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
-    unsigned int mm;
-    pollSonar(mm);
-    radarWaiting = false;
-    resetSendCycle();
 
     prevStatus = connectionStatus;
-    sendConnection();
-    delay(100);
+    requestConnection();
   }
 }

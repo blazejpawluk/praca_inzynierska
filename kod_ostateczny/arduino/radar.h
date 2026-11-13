@@ -15,7 +15,6 @@
 bool radarOn;
 int radarFrom, radarTo, radarStep;
 unsigned long radarInterval;
-extern int servoAngle;
 int8_t radarDir = 1;
 unsigned long lastRadarMs;
 bool radarWaiting = false; // czekamy na wynik pomiaru przed ruchem serwa
@@ -53,15 +52,12 @@ void updateRadar() {
 void radarNextStep() {
   radarWaiting = false;
 
-  int next = servoAngle + radarDir * radarStep;
-  if (radarDir > 0 && servoAngle >= radarTo) {
-    radarDir = -1;
-    next = servoAngle - radarStep;
-  } else if (radarDir < 0 && servoAngle <= radarFrom) {
-    radarDir = 1;
-    next = servoAngle + radarStep;
-  }
+  // zmiana kierunku na granicy zakresu
+  if (radarDir > 0 && servoAngle >= radarTo) radarDir = -1;
+  else if (radarDir < 0 && servoAngle <= radarFrom) radarDir = 1;
+
   // gdy (to - from) nie dzieli się przez step, ostatni krok kończy się dokładnie na granicy zakresu
+  int next = servoAngle + radarDir * radarStep;
   next = constrain(next, radarFrom, radarTo);
   setServoAngle(next);
 

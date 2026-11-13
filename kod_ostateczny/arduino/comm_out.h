@@ -54,9 +54,9 @@ void sendDist(int angle, unsigned int mm) {
 }
 
 void sendMPU() {
-  float ax = 0, ay = 0, az = 0;
-  float gx = 0, gy = 0, gz = 0;
-  float temp = 0;
+  float ax, ay, az;
+  float gx, gy, gz;
+  float temp;
   if (!readMPU(ax, ay, az, gx, gy, gz, temp)) return;
 
   Serial.print("A:MPU:");
@@ -143,4 +143,14 @@ void sendNext() {
 
 void sendConnection() {
   Serial.println("A:CONNECTION");
+}
+
+// żądanie statusu połączenia co CONNECTION_INTERVAL ms, bez blokowania pętli (zamiast delay)
+const unsigned long CONNECTION_INTERVAL = 100;
+unsigned long lastConnectionMs = 0;
+
+void requestConnection() {
+  if (millis() - lastConnectionMs < CONNECTION_INTERVAL) return;
+  sendConnection();
+  lastConnectionMs = millis();
 }

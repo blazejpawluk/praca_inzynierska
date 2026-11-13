@@ -35,9 +35,23 @@ extern uint8_t connectionStatus;
 const unsigned long CMD_TIMEOUT_MS = 1000;
 unsigned long lastCmdMs = 0;
 
+// ostatnia komenda W: pokazywana w wierszu 1 LCD najwyżej co LCD_REFRESH_MS
+const unsigned long LCD_REFRESH_MS = 250;
+char lastCmd[LCD_COLS + 1];
+bool lastCmdPending = false;
+unsigned long lastLcdMs = 0;
+
+void showLastCommand() {
+  if (!lastCmdPending || millis() - lastLcdMs < LCD_REFRESH_MS) return;
+  printLCD(1, lastCmd);
+  lastCmdPending = false;
+  lastLcdMs = millis();
+}
+
 void checkCmdTimeout() {
   if ((speedL != 0 || speedR != 0) && millis() - lastCmdMs > CMD_TIMEOUT_MS) {
     setMotors(0, 0);
+    printLCD(1, "NO COMMANDS");
   }
 }
 
@@ -86,16 +100,21 @@ void handleLine(const char* line) {
     stopRadar();
   } else if (strncmp(line, "W:MSG:", 6) == 0) {
     printLCD(0, line + 6);
+    lastCmdMs = millis();
+    return; // tekst jest już w wierszu 0, nie powtarzamy go w wierszu 1
   } else if (strncmp(line, "E:CONNECTION:", 13) == 0) {
     if (!parseArgs(line + 13, p, 1)) return;
     connectionStatus = p[0];
+    return; // komunikat z ESP32: nie odnawia timeoutu i nie jest pokazywany na LCD
   } else return;
 
-  // każda poprawna komenda z frontendu odnawia timeout (E: pochodzi z ESP32, więc się nie liczy)
-  if (line[0] == 'W') lastCmdMs = millis();
+  // każda poprawna komenda z frontendu odnawia timeout
+  lastCmdMs = millis();
 
-  // tylko poprawne komendy trafiają na LCD
-  printLCD(1, line);
+  // zapamiętanie komendy do wyświetlenia przez showLastCommand()
+  strncpy(lastCmd, line, LCD_COLS);
+  lastCmd[LCD_COLS] = '\0';
+  lastCmdPending = true;
 }
 
 void readSerial() {
