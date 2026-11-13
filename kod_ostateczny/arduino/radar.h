@@ -61,6 +61,8 @@ void radarNextStep() {
     radarDir = 1;
     next = servoAngle + radarStep;
   }
+  // gdy (to - from) nie dzieli się przez step, ostatni krok kończy się dokładnie na granicy zakresu
+  next = constrain(next, radarFrom, radarTo);
   setServoAngle(next);
 
   lastRadarMs = millis();

@@ -30,6 +30,17 @@ char rxBuf[RX_BUF_SIZE];
 uint8_t rxLen;
 extern uint8_t connectionStatus;
 
+// zatrzymanie silników, jeśli przez CMD_TIMEOUT_MS nie przyszła żadna poprawna komenda W:
+// (frontend podczas jazdy powinien powtarzać W:MOTOR co ~500 ms)
+const unsigned long CMD_TIMEOUT_MS = 1000;
+unsigned long lastCmdMs = 0;
+
+void checkCmdTimeout() {
+  if ((speedL != 0 || speedR != 0) && millis() - lastCmdMs > CMD_TIMEOUT_MS) {
+    setMotors(0, 0);
+  }
+}
+
 bool parseArgs(const char* s, long* out, uint8_t count) {
   for (uint8_t i = 0; i < count; i++) {
     bool neg = false;
@@ -79,6 +90,9 @@ void handleLine(const char* line) {
     if (!parseArgs(line + 13, p, 1)) return;
     connectionStatus = p[0];
   } else return;
+
+  // każda poprawna komenda z frontendu odnawia timeout (E: pochodzi z ESP32, więc się nie liczy)
+  if (line[0] == 'W') lastCmdMs = millis();
 
   // tylko poprawne komendy trafiają na LCD
   printLCD(1, line);

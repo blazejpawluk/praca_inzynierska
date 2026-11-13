@@ -111,7 +111,10 @@ void loop() {
       printLCD(0, "CONNECTED");
     }
     prevStatus = connectionStatus;
-  
+
+    // zatrzymanie silników po braku komend z frontendu
+    checkCmdTimeout();
+
     // aktualizacja pozycji
     if (dataReadyMPU()) {
       updatePosition();
