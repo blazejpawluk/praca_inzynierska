@@ -1,6 +1,6 @@
 /*
   Błażej Pawluk
-  
+
   Praca inżynierska: "Samojezdna platforma do skanowania pomieszczeń"
   Kod na mikrokontroler Arduino UNO
 
@@ -11,148 +11,140 @@
       połączenie UART: RX=D0, TX=D1 (przez konwerter poziomów logicznych 5V-3.3V)
     - wyświetlacz LCD 16x2 I2C
       połączenie I2C: SDA=A4, SCL=A5
-    - enkodery szcelinowe kół (po jednym na przednie koło)
+    - enkodery szczelinowe kół (po jednym na przednie koło)
       piny sterujące: lewy=A0, prawy=A1
     - serwomechanizm SG90
       pin sterujący: D9
     - sonar ultradźwiękowy HC-SR04
       piny sterujące: TRIG=A3, ECHO=A2
     - żyroskop z akcelerometrem MPU6050
-      połączenie I2C: SDA=SDA, SCL=SCL
+      połączenie I2C: SDA=A4, SCL=A5 (wspólne z LCD)
 */
 
-#include "comm_out.h"
+#include <Wire.h>
 #include "comm_in.h"
+#include "comm_out.h"
 #include "lcd.h"
 #include "wheels.h"
 #include "encoders.h"
 #include "servo.h"
 #include "sonar.h"
+#include "interrupts.h"
 #include "mpu.h"
 #include "position.h"
 #include "radar.h"
-#include "interrupts.h"
 
 // konfiguracja systemu
 const unsigned long BAUD = 38400;
-const unsigned long SEND_INTERVAL = 100; // ms
-unsigned long lastSend = 0; // ms
+const unsigned long SEND_INTERVAL_MS = 100;  // co tyle zaczyna się cykl wysyłania danych
+const uint32_t I2C_TIMEOUT_US = 3000;        // ochrona przed zawieszeniem magistrali I2C
 
-uint8_t connectionStatus;
-int prevStatus;
+static unsigned long lastSendMs = 0;
+static ConnectionStatus prevStatus = CONN_WAIT_AP;
+
+// czeka, dopóki status połączenia jest równy status, wyświetlając komunikat
+static void waitWhileStatus(ConnectionStatus status,
+                            const __FlashStringHelper* line0, const __FlashStringHelper* line1) {
+  while (connectionStatus == status) {
+    commRequestConnection();
+    commReceive();
+
+    lcdPrint(LCD_ROW_STATUS, line0);
+    lcdPrint(LCD_ROW_CMD, line1);
+  }
+}
+
+// przejście do stanu połączenia (start oraz ponowne połączenie)
+static void onConnected() {
+  positionInit();
+  lcdPrint(LCD_ROW_STATUS, F("CONNECTED"));
+  lcdPrint(LCD_ROW_CMD, F("READY TO WORK"));
+}
+
+// przejście do stanu braku połączenia
+static void onDisconnected() {
+  motorsSet(0, 0);
+
+  commClearLastCommand();
+  lcdPrint(LCD_ROW_STATUS, F("DISCONNECTED"));
+  lcdPrint(LCD_ROW_CMD, F("WAITING"));
+
+  // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
+  sonarCancel();
+  radarPause();
+  commResetSendCycle();
+}
+
+// przekazuje wynik zakończonego pomiaru sonaru do wysłania i do radaru
+static void handleSonarResult() {
+  unsigned int mm;
+  int angle;
+  if (!sonarPoll(mm, angle)) return;
+
+  commQueueDist(angle, mm);
+  radarOnMeasurement();
+}
+
+// praca przy aktywnym połączeniu
+static void runConnected() {
+  commCheckTimeout();
+  positionPoll();
+  radarUpdate();
+  handleSonarResult();
+
+  unsigned long now = millis();
+  if (now - lastSendMs >= SEND_INTERVAL_MS) {
+    commStartSendCycle();
+    lastSendMs = now;
+  }
+  commSendNext();
+}
+
+// praca bez połączenia: tylko żądanie statusu
+static void runDisconnected() {
+  commRequestConnection();
+}
 
 void setup() {
-  // inicjalizacja LCD
-  initLCD();
-  printLCD(0, F("INITIALIZATION"));
+  // magistrala I2C wspólna dla LCD i MPU6050
+  Wire.begin();
+  Wire.setWireTimeout(I2C_TIMEOUT_US, true);
 
-  // inicjalizacja komunikacji UART
+  lcdInit();
+  lcdPrint(LCD_ROW_STATUS, F("INITIALIZATION"));
+
   Serial.begin(BAUD);
 
-  // inicjalizacja silników
-  initMotors();
+  motorsInit();
+  encodersInit();
+  servoInit();
+  sonarInit();
+  interruptsInit(); // po encodersInit() i sonarInit()
 
-  // inicjalizacja enkoderów
-  initEncoders();
-
-  // inicjalizacja SG90
-  initServo();
-
-  // inicjalizacja HC-SR04
-  initSonar();
-
-  // włączenie przerwań enkoderów i sonaru
-  initInterrupts();
-
-  // inicjalizacja MPU6050
-  if (!initMPU()) {
-    printLCD(0, F("MPU6050 ERROR"));
-    printLCD(1, F("RESET THIS CAR"));
-    while (true);
+  if (!mpuInit()) {
+    lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
+    lcdPrint(LCD_ROW_CMD, F("RESET THIS CAR"));
+    while (true) {} // dalsza praca bez MPU6050 nie ma sensu (brak pozycji)
   }
 
   // oczekiwanie na połączenie
-  while (connectionStatus == 0) {
-    requestConnection();
-    readSerial();
+  waitWhileStatus(CONN_WAIT_AP, F("WAITING FOR WIFI"), F(""));
+  waitWhileStatus(CONN_WAIT_CLIENT, F("CONNECT ON YOUR"), F("DEVICE"));
 
-    printLCD(0, F("WAITING FOR WIFI"));
-  }
-  while (connectionStatus == 1) {
-    requestConnection();
-    readSerial();
-
-    printLCD(0, F("CONNECT ON YOUR"));
-    printLCD(1, F("DEVICE"));
-  }
-
-  // inicjalizacja pozycji
-  initPosition();
-
-  printLCD(0, F("CONNECTED"));
-  printLCD(1, F("READY TO WORK"));
-  prevStatus = 2;
-
-  lastSend = millis();
+  onConnected();
+  prevStatus = CONN_OK;
+  lastSendMs = millis();
 }
 
 void loop() {
-  // odbieranie danych z UART
-  readSerial();
+  commReceive();
+  commShowLastCommand();
 
-  // wyświetlenie ostatniej komendy na LCD (najwyżej co LCD_REFRESH_MS)
-  showLastCommand();
+  ConnectionStatus status = connectionStatus;
+  if (status == CONN_OK && prevStatus != CONN_OK) onConnected();
+  if (status != CONN_OK && prevStatus == CONN_OK) onDisconnected();
+  prevStatus = status;
 
-  if (connectionStatus == 2) {
-    if (prevStatus != 2) {
-      initPosition();
-      printLCD(0, F("CONNECTED"));
-      printLCD(1, F("READY TO WORK"));
-    }
-    prevStatus = connectionStatus;
-
-    // zatrzymanie silników po braku komend z frontendu
-    checkCmdTimeout();
-
-    // aktualizacja pozycji (o nową próbkę MPU pytamy dopiero, gdy mogła już powstać)
-    if (micros() - prevUs >= MPU_POLL_US && dataReadyMPU()) {
-      updatePosition();
-    }
-    
-    // aktualizacja radaru
-    updateRadar();
-
-    // odbiór wyniku pomiaru sonaru (radar lub pomiar z cyklu wysyłania)
-    unsigned int mm;
-    if (pollSonar(mm)) {
-      queueDist(mm);
-      if (radarWaiting) radarNextStep();
-    }
-
-    // rozpoczęcie cyklu wysyłania co SEND_INTERVAL ms
-    unsigned long now = millis(); // ms
-    if (now - lastSend >= SEND_INTERVAL) {
-      startSendCycle();
-      lastSend = now;
-    }
-
-    // wysłanie najwyżej jednej wiadomości (bez blokowania)
-    sendNext();
-  } else {
-    if (prevStatus == 2) {
-      setMotors(0,0);
-      
-      lastCmdPending = false;
-      printLCD(0, F("DISCONNECTED"));
-      printLCD(1, F("WAITING"));
-      
-      // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
-      sonarBusy = false;
-      radarWaiting = false;
-      resetSendCycle();
-    }
-
-    prevStatus = connectionStatus;
-    requestConnection();
-  }
+  if (status == CONN_OK) runConnected();
+  else runDisconnected();
 }

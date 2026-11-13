@@ -6,86 +6,30 @@
 
   Połączenie: TRIG=A3, ECHO=A2
 
-  Pomiar nie blokuje programu: startSonar() wyzwala pomiar, czas trwania echa mierzy
-  przerwanie PCINT1 (interrupts.h), a pollSonar() zwraca wynik, gdy jest gotowy
+  Pomiar nie blokuje programu: sonarStart() wyzwala pomiar, czas trwania echa mierzy
+  przerwanie PCINT1 (interrupts.cpp), a sonarPoll() zwraca wynik, gdy jest gotowy
 */
 
 #pragma once
 
 #include <Arduino.h>
 
-// piny
-const uint8_t TRIG = A3;
-const uint8_t ECHO = A2;
-const uint8_t ECHO_BIT = 0b100; // PC2 w rejestrze PINC
+// bit pinu ECHO w rejestrze PINC (potrzebny w interrupts.cpp)
+const uint8_t ECHO_BIT = 0b100; // PC2 = A2
 
-// konfiguracja
-const unsigned long ECHO_TIMEOUT_US = 25000;
-const unsigned int MIN_VALID_MM = 34;
-const unsigned int MAX_VALID_MM = 4000;
+void sonarInit();
 
-// stan pomiaru
-volatile bool sonarBusy = false; // pomiar w toku
-volatile bool echoHigh = false; // zarejestrowano początek echa w bieżącym pomiarze
-volatile bool echoReady = false; // zarejestrowano koniec echa w bieżącym pomiarze
-volatile unsigned long echoStart = 0;
-volatile unsigned long echoUs = 0;
-unsigned long trigUs = 0;
-extern int servoAngle;
-int sonarAngle = 0; // kąt serwa w chwili wyzwolenia pomiaru
+// rozpoczyna pomiar (blokuje tylko ~10 us); nic nie robi, jeśli pomiar jest w toku
+void sonarStart();
 
-void initSonar() {
-  pinMode(TRIG, OUTPUT);
-  pinMode(ECHO, INPUT);
-  digitalWrite(TRIG, LOW);
-}
+// zwraca true, gdy pomiar się zakończył:
+// mm – odległość (0 = brak echa lub poza zakresem), angle – kąt serwa w chwili wyzwolenia pomiaru
+bool sonarPoll(unsigned int& mm, int& angle);
 
-void startSonar() {
-  if (sonarBusy) return;
+bool sonarIsBusy();
 
-  noInterrupts();
-  echoHigh = false;
-  echoReady = false;
-  sonarBusy = true;
-  interrupts();
-  sonarAngle = servoAngle;
+// porzuca trwający pomiar (spóźnione echo zostanie zignorowane)
+void sonarCancel();
 
-  digitalWrite(TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG, LOW);
-  trigUs = micros();
-}
-
-bool pollSonar(unsigned int& mm) {
-  if (!sonarBusy) return false;
-
-  if (echoReady) {
-    noInterrupts();
-    unsigned long us = echoUs;
-    sonarBusy = false;
-    interrupts();
-
-    mm = (us * 100UL) / 583UL;
-    if (mm < MIN_VALID_MM || mm > MAX_VALID_MM) mm = 0;
-    return true;
-  }
-
-  if (micros() - trigUs > ECHO_TIMEOUT_US + 1000) {
-    sonarBusy = false;
-    mm = 0;
-    return true;
-  }
-  return false;
-}
-
-void sonarISR(uint8_t state, uint8_t changed, unsigned long now) {
-  if (!(changed & ECHO_BIT) || !sonarBusy) return;
-
-  if (state & ECHO_BIT) {
-    echoStart = now;
-    echoHigh = true;
-  } else if (echoHigh) {
-    echoUs = now - echoStart;
-    echoReady = true;
-  }
-}
+// wywoływane z przerwania PCINT1; state – stan pinów, changed – piny, które zmieniły stan
+void sonarISR(uint8_t state, uint8_t changed, unsigned long now);

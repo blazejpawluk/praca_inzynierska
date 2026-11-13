@@ -5,130 +5,42 @@
   Biblioteka obsługująca komunikację przychodzącą przez UART z ESP32-CAM
 
   Połączenie: UART RX=D0 (z ESP32-CAM przez konwerter poziomów logicznych z 3.3V na 5V)
-  
+
   Protokoły komunikacji przychodzącej na Arduino:
     - W:SERVO:<angle> - ustawienie kąta SG90 [stopnie]
-    - W:MOTOR:<left>,<right> - ustwienie prędkości silników [PWM]
+    - W:MOTOR:<left>,<right> - ustawienie prędkości silników [PWM]
     - W:RESETPOS - reset pozycji do (0,0,0)
-    - W:RADAR:<from>,<to>,<step>,<interval> - uruchomianie radaru [stopnie, stopnie, stopnie, ms]
+    - W:RADAR:<from>,<to>,<step>,<interval> - uruchomienie radaru [stopnie, stopnie, stopnie, ms]
     - W:RADAROFF - wyłączenie radaru
     - W:MSG:<text> - tekst do wyświetlenia na LCD (maksymalnie 16 znaków)
-    - E:CONNECTION:<status> - stataus połączenia z komputerem [0=oczekiwanie na uruchomienie AccessPoint, 1=oczekiwanie na połączenie z komputerem, 2=połączono]
+    - E:CONNECTION:<status> - status połączenia z komputerem [0=oczekiwanie na uruchomienie AccessPoint, 1=oczekiwanie na połączenie z komputerem, 2=połączono]
+
+  Komendy W: są wykonywane tylko przy statusie CONN_OK.
 */
 
 #pragma once
 
 #include <Arduino.h>
-#include "lcd.h"
-#include "wheels.h"
-#include "servo.h"
-#include "radar.h"
 
-// konfiguracja
-// najdłuższa poprawna komenda: "W:RADAR:-32767,-32767,-32767,-32767" (35 znaków) + '\0';
-// przy rozszerzaniu protokołu trzeba sprawdzić, czy nowe komendy się mieszczą
-const uint8_t RX_BUF_SIZE = 40;
-char rxBuf[RX_BUF_SIZE];
-uint8_t rxLen;
-extern uint8_t connectionStatus;
+// status połączenia z komputerem (E:CONNECTION:<status>)
+enum ConnectionStatus : uint8_t {
+  CONN_WAIT_AP = 0,     // oczekiwanie na uruchomienie AccessPoint
+  CONN_WAIT_CLIENT = 1, // oczekiwanie na połączenie z komputerem
+  CONN_OK = 2           // połączono
+};
 
-// zatrzymanie silników, jeśli przez CMD_TIMEOUT_MS nie przyszła żadna poprawna komenda W:
+// aktualny status połączenia (tylko do odczytu poza comm_in.cpp)
+extern ConnectionStatus connectionStatus;
+
+// odbiera dostępne bajty z UART i wykonuje kompletne komendy
+void commReceive();
+
+// wyświetla ostatnią komendę w wierszu LCD_ROW_CMD (najwyżej co LCD_REFRESH_MS)
+void commShowLastCommand();
+
+// porzuca komendę czekającą na wyświetlenie
+void commClearLastCommand();
+
+// zatrzymuje silniki, jeśli przez CMD_TIMEOUT_MS nie przyszła żadna komenda W:
 // (frontend podczas jazdy powinien powtarzać W:MOTOR co ~500 ms)
-const unsigned long CMD_TIMEOUT_MS = 1000;
-unsigned long lastCmdMs = 0;
-
-// ostatnia komenda W: pokazywana w wierszu 1 LCD najwyżej co LCD_REFRESH_MS
-const unsigned long LCD_REFRESH_MS = 250;
-char lastCmd[LCD_COLS + 1];
-bool lastCmdPending = false;
-unsigned long lastLcdMs = 0;
-
-void showLastCommand() {
-  if (!lastCmdPending || millis() - lastLcdMs < LCD_REFRESH_MS) return;
-  printLCD(1, lastCmd);
-  lastCmdPending = false;
-  lastLcdMs = millis();
-}
-
-void checkCmdTimeout() {
-  if ((speedL != 0 || speedR != 0) && millis() - lastCmdMs > CMD_TIMEOUT_MS) {
-    setMotors(0, 0);
-    printLCD(1, F("NO COMMANDS"));
-  }
-}
-
-bool parseArgs(const char* s, long* out, uint8_t count) {
-  for (uint8_t i = 0; i < count; i++) {
-    bool neg = false;
-    if (*s == '-') {
-      neg = true;
-      s++;
-    }
-    if (*s < '0' || *s > '9') return false;
-    
-    long v = 0;
-    while (*s >= '0' && *s <= '9') {
-      v = v * 10 + (*s++ - '0');
-      if (v > 32767) return false;
-    }
-
-    out[i] = neg ? -v : v;
-    
-    if (i < count - 1) {
-      if (*s != ',') return false;
-      s++;
-    }
-  }
-  return *s == '\0';
-}
-
-void handleLine(const char* line) {
-  if (line[0] == 'W' && connectionStatus != 2) return;
-
-  long p[4];
-
-  if (strncmp_P(line, PSTR("W:SERVO:"), 8) == 0) {
-    if (!parseArgs(line + 8, p, 1)) return;
-    setServoAngle(p[0]);
-  } else if (strncmp_P(line, PSTR("W:MOTOR:"), 8) == 0) {
-    if (!parseArgs(line + 8, p, 2)) return;
-    setMotors(p[0], p[1]);
-  } else if (strcmp_P(line, PSTR("W:RESETPOS")) == 0) {
-    resetPosition();
-  } else if (strncmp_P(line, PSTR("W:RADAR:"), 8) == 0) {
-    if (!parseArgs(line + 8, p, 4)) return;
-    startRadar(p[0], p[1], p[2], p[3]);
-  } else if (strcmp_P(line, PSTR("W:RADAROFF")) == 0) {
-    stopRadar();
-  } else if (strncmp_P(line, PSTR("W:MSG:"), 6) == 0) {
-    printLCD(0, line + 6);
-    lastCmdMs = millis();
-    return; // tekst jest już w wierszu 0, nie powtarzamy go w wierszu 1
-  } else if (strncmp_P(line, PSTR("E:CONNECTION:"), 13) == 0) {
-    if (!parseArgs(line + 13, p, 1)) return;
-    connectionStatus = p[0];
-    return; // komunikat z ESP32: nie odnawia timeoutu i nie jest pokazywany na LCD
-  } else return;
-
-  // każda poprawna komenda z frontendu odnawia timeout
-  lastCmdMs = millis();
-
-  // zapamiętanie komendy do wyświetlenia przez showLastCommand()
-  strncpy(lastCmd, line, LCD_COLS);
-  lastCmd[LCD_COLS] = '\0';
-  lastCmdPending = true;
-}
-
-void readSerial() {
-  while (Serial.available() > 0) {
-    char c = (char)Serial.read();
-    if (c == '\r') continue;
-    if (c == '\n') {
-      rxBuf[rxLen] = '\0';
-      if (rxLen > 0) handleLine(rxBuf);
-      rxLen = 0;
-    } else if (rxLen < RX_BUF_SIZE - 1) {
-      rxBuf[rxLen++] = c;
-    }
-  }
-}
+void commCheckTimeout();

@@ -3,63 +3,24 @@
 
   Praca inżynierska: "Samojezdna platforma do skanowania pomieszczeń"
   Biblioteka obsługująca i sterująca radarem złożonym z serwomechanizmu SG90 i sonaru ultradźwiękowego HC-SR04
+
+  Radar przestawia serwo w zakresie [from, to] co step stopni; w każdym położeniu
+  czeka interval ms, wykonuje pomiar i dopiero po jego wyniku przechodzi do kolejnego kąta
 */
 
 #pragma once
 
-#include <Arduino.h>
-#include "servo.h"
-#include "sonar.h"
+// czy radar jest włączony (tylko do odczytu poza radar.cpp)
+extern bool radarOn;
 
-// konfiguracja
-bool radarOn;
-int radarFrom, radarTo, radarStep;
-unsigned long radarInterval;
-int8_t radarDir = 1;
-unsigned long lastRadarMs;
-bool radarWaiting = false; // czekamy na wynik pomiaru przed ruchem serwa
+void radarStart(int from, int to, int step, long intervalMs);
+void radarStop();
 
-void startRadar(int from, int to, int step, long interval) {
-  radarFrom = from;
-  radarTo = to;
-  radarStep = step;
-  radarInterval = interval;
-  radarDir = 1;
-  radarWaiting = false;
+// porzuca oczekiwanie na pomiar (np. po utracie połączenia); radar pozostaje włączony
+void radarPause();
 
-  setServoAngle(radarFrom);
-  radarOn = true;
+// po upływie intervalMs rozpoczyna pomiar; wywoływać w każdym obiegu loop()
+void radarUpdate();
 
-  lastRadarMs = millis();
-}
-
-void stopRadar() {
-  radarOn = false;
-  radarWaiting = false;
-}
-
-// po upływie radarInterval rozpoczyna pomiar; wynik odbiera loop() przez pollSonar()
-void updateRadar() {
-  if (!radarOn || radarWaiting) return;
-  if (millis() - lastRadarMs < radarInterval) return;
-  if (sonarBusy) return;
-
-  startSonar();
-  radarWaiting = true;
-}
-
-// wywoływane po otrzymaniu wyniku pomiaru: przestawia serwo na kolejny kąt
-void radarNextStep() {
-  radarWaiting = false;
-
-  // zmiana kierunku na granicy zakresu
-  if (radarDir > 0 && servoAngle >= radarTo) radarDir = -1;
-  else if (radarDir < 0 && servoAngle <= radarFrom) radarDir = 1;
-
-  // gdy (to - from) nie dzieli się przez step, ostatni krok kończy się dokładnie na granicy zakresu
-  int next = servoAngle + radarDir * radarStep;
-  next = constrain(next, radarFrom, radarTo);
-  setServoAngle(next);
-
-  lastRadarMs = millis();
-}
+// wywoływać po otrzymaniu wyniku pomiaru sonaru: jeśli radar na niego czekał, przestawia serwo na kolejny kąt
+void radarOnMeasurement();
