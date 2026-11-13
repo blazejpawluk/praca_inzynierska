@@ -31,6 +31,7 @@
 #include "mpu.h"
 #include "position.h"
 #include "radar.h"
+#include "interrupts.h"
 
 // konfiguracja systemu
 const unsigned long BAUD = 38400;
@@ -60,6 +61,9 @@ void setup() {
 
   // inicjalizacja HC-SR04
   initSonar();
+
+  // włączenie przerwań enkoderów i sonaru
+  initInterrupts();
 
   // inicjalizacja MPU6050
   if (!initMPU()) {
@@ -112,7 +116,14 @@ void loop() {
     
     // aktualizacja radaru
     updateRadar();
-    
+
+    // odbiór wyniku pomiaru sonaru (radar lub pomiar z sendData)
+    unsigned int mm;
+    if (pollSonar(mm)) {
+      sendDist(mm);
+      if (radarWaiting) radarNextStep();
+    }
+
     // wysyłanie danych przez UART co SEND_INTERVAL ms
     unsigned long now = millis(); // ms
     if (now - lastSend >= SEND_INTERVAL) {
@@ -125,6 +136,12 @@ void loop() {
       printLCD(1, "WAITING");
     }
     setMotors(0,0);
+
+    // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
+    unsigned int mm;
+    pollSonar(mm);
+    radarWaiting = false;
+
     prevStatus = connectionStatus;
     sendConnection();
     delay(100);

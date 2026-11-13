@@ -35,11 +35,11 @@ void sendEnc() {
 }
 
 extern int servoAngle;
-void sendDist() {
+void sendDist(unsigned int mm) {
   Serial.print("A:DIST:");
   Serial.print(servoAngle);
   Serial.print(",");
-  Serial.println(readSonar());
+  Serial.println(mm);
 }
 
 void sendMPU() {
@@ -78,8 +78,7 @@ void sendPos() {
 void sendData() {
   sendEnc();
   readSerial();
-  if (!radarOn) sendDist();
-  readSerial();
+  if (!radarOn) startSonar(); // wynik wysyła loop() po zakończeniu pomiaru
   sendMPU();
   readSerial();
   sendPos();

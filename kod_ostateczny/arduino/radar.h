@@ -10,7 +10,6 @@
 #include <Arduino.h>
 #include "servo.h"
 #include "sonar.h"
-#include "comm_out.h"
 
 // konfiguracja
 bool radarOn;
@@ -19,6 +18,7 @@ unsigned long radarInterval;
 extern int servoAngle;
 int8_t radarDir = 1;
 unsigned long lastRadarMs;
+bool radarWaiting = false; // czekamy na wynik pomiaru przed ruchem serwa
 
 void startRadar(int from, int to, int step, long interval) {
   radarFrom = from;
@@ -26,6 +26,7 @@ void startRadar(int from, int to, int step, long interval) {
   radarStep = step;
   radarInterval = interval;
   radarDir = 1;
+  radarWaiting = false;
 
   setServoAngle(radarFrom);
   radarOn = true;
@@ -35,15 +36,21 @@ void startRadar(int from, int to, int step, long interval) {
 
 void stopRadar() {
   radarOn = false;
+  radarWaiting = false;
 }
 
-bool updateRadar() {
-  if (!radarOn) return false;
+// po upływie radarInterval rozpoczyna pomiar; wynik odbiera loop() przez pollSonar()
+void updateRadar() {
+  if (!radarOn || radarWaiting) return;
+  if (millis() - lastRadarMs < radarInterval) return;
 
-  unsigned long now = millis();
-  if (now - lastRadarMs < radarInterval) return false;
+  startSonar(); // jeśli pomiar już trwa, jego wynik zostanie użyty przez radar
+  radarWaiting = true;
+}
 
-  sendDist();
+// wywoływane po otrzymaniu wyniku pomiaru: przestawia serwo na kolejny kąt
+void radarNextStep() {
+  radarWaiting = false;
 
   int next = servoAngle + radarDir * radarStep;
   if (radarDir > 0 && servoAngle >= radarTo) {
@@ -56,5 +63,4 @@ bool updateRadar() {
   setServoAngle(next);
 
   lastRadarMs = millis();
-  return true;
 }
