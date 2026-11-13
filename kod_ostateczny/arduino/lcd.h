@@ -34,12 +34,19 @@ void initLCD() {
   syncLCDCache();
 }
 
-void printLCD(uint8_t row, const char* text) {
+// wspólna część printLCD: tekst z RAM (flash = false) lub z pamięci programu (flash = true)
+void printLCDImpl(uint8_t row, const char* text, bool flash) {
   bool finish = false;
   bool cursorReady = false;
   for (uint8_t col = 0; col < LCD_COLS; col++) {
-    if (!finish && text[col] == '\0') finish = true;
-    char c = finish ? ' ' : text[col]; // spacje zamiast lcd.clear(), aby uniknąć efektu migania
+    char c = ' '; // spacje zamiast lcd.clear(), aby uniknąć efektu migania
+    if (!finish) {
+      c = flash ? (char)pgm_read_byte(text + col) : text[col];
+      if (c == '\0') {
+        finish = true;
+        c = ' ';
+      }
+    }
 
     // jeśli znak się nie zmienia to pomijamy
     if (c == shown[row][col]) {
@@ -55,4 +62,14 @@ void printLCD(uint8_t row, const char* text) {
     lcd.write(c);
     shown[row][col] = c;
   }
+}
+
+// tekst z RAM (np. odebrana komenda)
+void printLCD(uint8_t row, const char* text) {
+  printLCDImpl(row, text, false);
+}
+
+// stały tekst z pamięci programu: printLCD(0, F("TEKST")) – nie zajmuje RAM
+void printLCD(uint8_t row, const __FlashStringHelper* text) {
+  printLCDImpl(row, (const char*)text, true);
 }

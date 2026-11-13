@@ -32,8 +32,8 @@ extern int speedL, speedR;
 unsigned long prevL, prevR;
 float prevGz = 0;
 int8_t dirL, dirR;
-int16_t ringPulses[ENC_WINDOW];
-uint32_t ringDtUs[ENC_WINDOW];
+int8_t ringPulses[ENC_WINDOW];    // impulsy na próbkę (przycięte do ±127; przy próbkach co 5 ms zwykle < 10)
+uint16_t ringDtUs[ENC_WINDOW];    // czas próbki [us] (przycięty do 65535; zwykle ~5000)
 uint8_t ringIdx = 0;
 long sumPulses = 0;       // suma ringPulses (aktualizowana przyrostowo)
 unsigned long sumUs = 0;  // suma ringDtUs (aktualizowana przyrostowo)
@@ -60,12 +60,15 @@ float encodeVelocity(long dl, long dr, unsigned long dtUs) {
   if (speedL != 0) dirL = speedL > 0 ? 1 : -1;
   if (speedR != 0) dirR = speedR > 0 ? 1 : -1;
 
+  // przycięcie do zakresu typów bufora (przekroczenie możliwe tylko po długiej przerwie w odczycie MPU)
+  int8_t pulses = constrain(dirL * dl + dirR * dr, -127L, 127L);
+  uint16_t dt16 = dtUs > 65535UL ? 65535 : dtUs;
+
   // zamiana najstarszej próbki na nową: sumy aktualizowane bez przechodzenia całego bufora
-  int16_t pulses = dirL * dl + dirR * dr;
   sumPulses += pulses - ringPulses[ringIdx];
-  sumUs += dtUs - ringDtUs[ringIdx];
+  sumUs += (unsigned long)dt16 - ringDtUs[ringIdx];
   ringPulses[ringIdx] = pulses;
-  ringDtUs[ringIdx] = dtUs;
+  ringDtUs[ringIdx] = dt16;
   ringIdx = (ringIdx + 1) % ENC_WINDOW;
 
   if (sumUs == 0) return 0.0;

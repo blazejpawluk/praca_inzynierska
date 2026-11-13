@@ -44,7 +44,7 @@ int prevStatus;
 void setup() {
   // inicjalizacja LCD
   initLCD();
-  printLCD(0, "INITIALIZATION");
+  printLCD(0, F("INITIALIZATION"));
 
   // inicjalizacja komunikacji UART
   Serial.begin(BAUD);
@@ -66,8 +66,8 @@ void setup() {
 
   // inicjalizacja MPU6050
   if (!initMPU()) {
-    printLCD(0, "MPU6050 ERROR");
-    printLCD(1, "RESET THIS CAR");
+    printLCD(0, F("MPU6050 ERROR"));
+    printLCD(1, F("RESET THIS CAR"));
     while (true);
   }
 
@@ -76,21 +76,21 @@ void setup() {
     requestConnection();
     readSerial();
 
-    printLCD(0, "WAITING FOR WIFI");
+    printLCD(0, F("WAITING FOR WIFI"));
   }
   while (connectionStatus == 1) {
     requestConnection();
     readSerial();
 
-    printLCD(0, "CONNECT ON YOUR");
-    printLCD(1, "DEVICE");
+    printLCD(0, F("CONNECT ON YOUR"));
+    printLCD(1, F("DEVICE"));
   }
 
   // inicjalizacja pozycji
   initPosition();
 
-  printLCD(0, "CONNECTED");
-  printLCD(1, "READY TO WORK");
+  printLCD(0, F("CONNECTED"));
+  printLCD(1, F("READY TO WORK"));
   prevStatus = 2;
 
   lastSend = millis();
@@ -106,8 +106,8 @@ void loop() {
   if (connectionStatus == 2) {
     if (prevStatus != 2) {
       initPosition();
-      printLCD(0, "CONNECTED");
-      printLCD(1, "READY TO WORK");
+      printLCD(0, F("CONNECTED"));
+      printLCD(1, F("READY TO WORK"));
     }
     prevStatus = connectionStatus;
 
@@ -143,8 +143,8 @@ void loop() {
       setMotors(0,0);
       
       lastCmdPending = false;
-      printLCD(0, "DISCONNECTED");
-      printLCD(1, "WAITING");
+      printLCD(0, F("DISCONNECTED"));
+      printLCD(1, F("WAITING"));
       
       // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
       sonarBusy = false;

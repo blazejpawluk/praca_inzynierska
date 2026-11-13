@@ -40,7 +40,7 @@
 #define MPU_SAMPLE_US        ((MPU_SMPLRT_DIV + 1) * 1000UL) // okres próbki (1 kHz przy włączonym DLPF / (1 + dzielnik))
 #define MPU_POLL_US          (MPU_SAMPLE_US * 9 / 10)        // od ostatniego odczytu pytamy o nową próbkę dopiero po tym czasie
                                                              // (90%, aby opóźnienia pętli nie powodowały gubienia próbek)
-#define MPU_ACCEL_LSB_PER_G  (16384.0f / (1 << MPU_ACCEL_FS)) // czułość LSB na 1 g
+#define MPU_ACCEL_LSB_PER_G_INT (16384L >> MPU_ACCEL_FS)      // czułość LSB na 1 g
 #define MPU_GYRO_LSB_PER_DPS (131.0f / (1 << MPU_GYRO_FS))    // czułość LSB na 1 °/s
 
 // zapisuje bajt do rejestru i zwraca true jeśli układ potwierdził
@@ -117,18 +117,20 @@ bool readMPURaw(int16_t &ax, int16_t &ay, int16_t &az,
   return true;
 }
 
-bool readMPU(float &ax, float &ay, float &az,
-             float &gx, float &gy, float &gz,
-             float &temp) {
+// odczyt przeskalowany do liczb całkowitych (bez float):
+// przyspieszenie [mg], prędkość kątowa [0.01 stopnia/s], temperatura [0.01 stopnia C]
+bool readMPU(int16_t &ax, int16_t &ay, int16_t &az,
+             long &gx, long &gy, long &gz,
+             int16_t &temp) {
   int16_t rax, ray, raz, rgx, rgy, rgz, rt;
   if (!readMPURaw(rax, ray, raz, rgx, rgy, rgz, rt)) return false;
-  ax   = rax / MPU_ACCEL_LSB_PER_G;
-  ay   = ray / MPU_ACCEL_LSB_PER_G;
-  az   = raz / MPU_ACCEL_LSB_PER_G;
-  gx   = rgx / MPU_GYRO_LSB_PER_DPS;
-  gy   = rgy / MPU_GYRO_LSB_PER_DPS;
-  gz   = rgz / MPU_GYRO_LSB_PER_DPS;
-  temp = rt / 340.0f + 36.53f;
+  ax   = (long)rax * 1000 / MPU_ACCEL_LSB_PER_G_INT;
+  ay   = (long)ray * 1000 / MPU_ACCEL_LSB_PER_G_INT;
+  az   = (long)raz * 1000 / MPU_ACCEL_LSB_PER_G_INT;
+  gx   = (long)rgx * (100L << MPU_GYRO_FS) / 131;
+  gy   = (long)rgy * (100L << MPU_GYRO_FS) / 131;
+  gz   = (long)rgz * (100L << MPU_GYRO_FS) / 131;
+  temp = (long)rt * 100 / 340 + 3653;
   return true;
 }
 
