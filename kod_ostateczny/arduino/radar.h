@@ -19,7 +19,7 @@ void radarStop();
 // porzuca oczekiwanie na pomiar (np. po utracie połączenia); radar pozostaje włączony
 void radarPause();
 
-// po upływie intervalMs rozpoczyna pomiar; wywoływać w każdym obiegu loop()
+// po upływie intervalMs rozpoczyna pomiar
 void radarUpdate();
 
 // wywoływać po otrzymaniu wyniku pomiaru sonaru: jeśli radar na niego czekał, przestawia serwo na kolejny kąt

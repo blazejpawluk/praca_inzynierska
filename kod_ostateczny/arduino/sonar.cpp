@@ -13,16 +13,16 @@ const uint8_t TRIG_PIN = A3;
 const uint8_t ECHO_PIN = A2;
 
 // konfiguracja
-const unsigned long TRIG_PULSE_US = 10;         // długość impulsu wyzwalającego
-const unsigned long ECHO_TIMEOUT_US = 25000;    // czas echa dla MAX_VALID_MM
+const unsigned long TRIG_PULSE_US = 10; // długość impulsu wyzwalającego
+const unsigned long ECHO_TIMEOUT_US = 25000; // czas echa dla MAX_VALID_MM
 const unsigned long ECHO_START_DELAY_US = 1000; // zapas na opóźnienie HC-SR04 przed początkiem echa
-const unsigned long ECHO_US_PER_MM_X100 = 583;  // droga tam i z powrotem: 2 / 343 m/s = 5.83 us na mm
+const unsigned long ECHO_US_PER_MM_X100 = 583; // droga tam i z powrotem: 2 / 343 m/s = 5.83 us na mm
 const unsigned int MIN_VALID_MM = 34;
 const unsigned int MAX_VALID_MM = 4000;
 
 // stan pomiaru (zmieniany także w przerwaniu)
-static volatile bool busy = false;      // pomiar w toku
-static volatile bool echoHigh = false;  // zarejestrowano początek echa w bieżącym pomiarze
+static volatile bool busy = false; // pomiar w toku
+static volatile bool echoHigh = false; // zarejestrowano początek echa w bieżącym pomiarze
 static volatile bool echoReady = false; // zarejestrowano koniec echa w bieżącym pomiarze
 static volatile unsigned long echoStart = 0;
 static volatile unsigned long echoUs = 0;

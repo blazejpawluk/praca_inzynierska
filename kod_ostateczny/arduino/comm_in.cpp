@@ -76,33 +76,47 @@ static void handleLine(const char* line) {
   long args[MAX_ARGS];
   const char* rest;
 
+  // W:SERVO:<angle>
   if (startsWith(line, PSTR("W:SERVO:"), rest)) {
     if (!parseArgs(rest, args, 1)) return;
     servoSetAngle(args[0]);
+  
+  // W:MOTOR:<left>,<right>
   } else if (startsWith(line, PSTR("W:MOTOR:"), rest)) {
     if (!parseArgs(rest, args, 2)) return;
     motorsSet(args[0], args[1]);
+
+  // W:RESETPOS
   } else if (strcmp_P(line, PSTR("W:RESETPOS")) == 0) {
     positionReset();
+
+  // W:RADAR:<from>,<to>,<step>,<interval>
   } else if (startsWith(line, PSTR("W:RADAR:"), rest)) {
     if (!parseArgs(rest, args, 4)) return;
     radarStart(args[0], args[1], args[2], args[3]);
+
+  // W:RADAROFF
   } else if (strcmp_P(line, PSTR("W:RADAROFF")) == 0) {
     radarStop();
+
+  // W:MSG:<text>
   } else if (startsWith(line, PSTR("W:MSG:"), rest)) {
     lcdPrint(LCD_ROW_STATUS, rest);
     lastCmdMs = millis();
-    return; // tekst jest już w wierszu LCD_ROW_STATUS, nie powtarzamy go w LCD_ROW_CMD
+    return;
+
+  // E:CONNECTION:<status>
   } else if (startsWith(line, PSTR("E:CONNECTION:"), rest)) {
     if (!parseArgs(rest, args, 1)) return;
     if (args[0] < CONN_WAIT_AP || args[0] > CONN_OK) return; // nieznany status
     connectionStatus = (ConnectionStatus)args[0];
-    return; // komunikat z ESP32: nie odnawia timeoutu i nie jest pokazywany na LCD
+    return;
+
+  // [unknown command]
   } else {
     return; // nieznana komenda
   }
 
-  // każda poprawna komenda z frontendu odnawia timeout
   lastCmdMs = millis();
 
   // zapamiętanie komendy do wyświetlenia przez commShowLastCommand()

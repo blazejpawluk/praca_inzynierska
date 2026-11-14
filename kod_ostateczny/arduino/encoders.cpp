@@ -31,7 +31,7 @@ void encodersRead(unsigned long& left, unsigned long& right) {
 }
 
 void encodersISR(uint8_t rising, unsigned long now) {
-  static unsigned long lastL = 0; // czas ostatniego zaliczonego impulsu
+  static unsigned long lastL = 0;
   static unsigned long lastR = 0;
 
   if ((rising & ENC_L_BIT) && (now - lastL > DEBOUNCE_US)) {

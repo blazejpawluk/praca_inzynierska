@@ -20,11 +20,11 @@ const unsigned long MPU_SAMPLE_US = 5000;
 // odczyt przeskalowany do liczb całkowitych
 struct MpuData {
   int16_t ax, ay, az; // przyspieszenie [mg]
-  long gx, gy, gz;    // prędkość kątowa [0.01 stopnia/s]
-  int16_t temp;       // temperatura [0.01 stopnia C]
+  long gx, gy, gz; // prędkość kątowa [0.01 stopnia/s]
+  int16_t temp; // temperatura [0.01 stopnia C]
 };
 
-// wymaga zainicjalizowanej magistrali I2C (Wire.begin()); zwraca false, jeśli układ nie odpowiada
+// zwraca false, jeśli układ nie odpowiada
 bool mpuInit();
 
 // true, jeśli od ostatniego odczytu powstała nowa próbka
@@ -33,4 +33,5 @@ bool mpuDataReady();
 bool mpuRead(MpuData& data);
 
 // prędkość kątowa wokół osi Z [stopnie/s]
+// używane w position.h, gdzie nie są potrzebne inne dane
 bool mpuReadGz(float& gz);

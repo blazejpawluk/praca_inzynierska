@@ -21,7 +21,7 @@ const unsigned long CONNECTION_INTERVAL_MS = 100;
 static unsigned long lastConnectionMs = 0;
 
 // cykl wysyłania: jedna wiadomość na obieg loop() w kolejności ENC, DIST, MPU, POS
-enum SendPhase : uint8_t { SEND_IDLE, SEND_ENC, SEND_DIST, SEND_MPU, SEND_POS };
+enum SendPhase : uint8_t {SEND_IDLE, SEND_ENC, SEND_DIST, SEND_MPU, SEND_POS};
 static SendPhase sendPhase = SEND_IDLE;
 
 // wynik pomiaru sonaru czekający na wysłanie
@@ -67,7 +67,6 @@ static void sendMPU() {
 }
 
 static void sendPos() {
-  // liczby całkowite zamiast float: Serial.print(float) dołącza ~450 B kodu formatowania
   Serial.print(F("A:POS:"));
   Serial.print(lround(posX));
   Serial.print(',');

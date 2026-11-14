@@ -17,7 +17,7 @@ float velocity = 0;
 
 // parametry techniczne
 const uint8_t WHEEL_DIAMETER_MM = 65; // średnica kół [mm]
-const uint8_t PULSES_PER_REV = 20;    // liczba szczelin tarczy enkodera
+const uint8_t PULSES_PER_REV = 20; // liczba szczelin tarczy enkodera
 const float DIST_PER_PULSE_MM = PI * WHEEL_DIAMETER_MM / PULSES_PER_REV; // przejechana odległość na impuls enkodera [mm]
 
 // konfiguracja
@@ -28,19 +28,19 @@ const unsigned long MPU_POLL_US = MPU_SAMPLE_US * 9 / 10;
 
 // stan
 static unsigned long prevL, prevR; // liczniki enkoderów przy poprzedniej próbce
-static unsigned long prevUs;       // czas poprzedniej próbki [us]
-static float prevGz = 0;           // prędkość kątowa z poprzedniej próbki [stopnie/s]
+static unsigned long prevUs; // czas poprzedniej próbki [us]
+static float prevGz = 0; // prędkość kątowa z poprzedniej próbki [stopnie/s]
 
 // kierunek obrotu kół: enkodery jednokanałowe nie rozpoznają kierunku, więc jest on brany
-// ze znaku ostatniej niezerowej prędkości silnika (po zatrzymaniu koła mogą się jeszcze toczyć)
+// ze znaku ostatniej niezerowej prędkości silnika
 static int8_t dirL = 0, dirR = 0;
 
 // bufor ostatnich ENC_WINDOW próbek do wyliczenia prędkości
 static int8_t ringPulses[ENC_WINDOW]; // impulsy na próbkę (przycięte do +-127; przy próbkach co 5 ms zwykle < 10)
 static uint16_t ringDtUs[ENC_WINDOW]; // czas próbki [us] (przycięty do 65535; zwykle ~5000)
 static uint8_t ringIdx = 0;
-static long sumPulses = 0;            // suma ringPulses (aktualizowana przyrostowo)
-static unsigned long sumUs = 0;       // suma ringDtUs (aktualizowana przyrostowo)
+static long sumPulses = 0; // suma ringPulses (aktualizowana przyrostowo)
+static unsigned long sumUs = 0; // suma ringDtUs (aktualizowana przyrostowo)
 
 void positionInit() {
   encodersRead(prevL, prevR);

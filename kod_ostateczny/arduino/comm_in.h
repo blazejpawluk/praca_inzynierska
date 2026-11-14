@@ -24,9 +24,14 @@
 
 // status połączenia z komputerem (E:CONNECTION:<status>)
 enum ConnectionStatus : uint8_t {
-  CONN_WAIT_AP = 0,     // oczekiwanie na uruchomienie AccessPoint
-  CONN_WAIT_CLIENT = 1, // oczekiwanie na połączenie z komputerem
-  CONN_OK = 2           // połączono
+  // oczekiwanie na uruchomienie AccessPoint
+  CONN_WAIT_AP = 0,
+
+  // oczekiwanie na połączenie z komputerem
+  CONN_WAIT_CLIENT = 1,
+  
+  // połączono
+  CONN_OK = 2
 };
 
 // aktualny status połączenia (tylko do odczytu poza comm_in.cpp)

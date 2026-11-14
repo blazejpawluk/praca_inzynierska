@@ -12,15 +12,14 @@
 
 // aktualny stan pojazdu (tylko do odczytu poza position.cpp)
 extern float posX, posY; // pozycja [mm]
-extern float heading;    // kierunek jazdy [stopnie, (-180, 180]]
-extern float velocity;   // prędkość [mm/s]
+extern float heading; // kierunek jazdy [stopnie, (-180, 180]]
+extern float velocity; // prędkość [mm/s]
 
 // zeruje bufory pomocnicze i czas ostatniej próbki (bez zmiany pozycji);
-// wywołać przed rozpoczęciem śledzenia oraz po przerwie (np. po ponownym połączeniu)
 void positionInit();
 
 // ustawia pozycję i kierunek na (0, 0, 0)
 void positionReset();
 
-// aktualizuje pozycję, jeśli MPU6050 ma nową próbkę; wywoływać w każdym obiegu loop()
+// aktualizuje pozycję, jeśli MPU6050 ma nową próbkę
 void positionPoll();

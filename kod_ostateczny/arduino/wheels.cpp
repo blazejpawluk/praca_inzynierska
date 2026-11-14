@@ -7,7 +7,7 @@
 
 #include "wheels.h"
 
-// piny L298N (ENA i ENB na Timer0 – ta sama częstotliwość PWM dla obu stron)
+// piny L298N
 const uint8_t ENA_PIN = 5;
 const uint8_t IN1_PIN = 4;
 const uint8_t IN2_PIN = 3;

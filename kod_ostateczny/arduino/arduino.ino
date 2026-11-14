@@ -36,15 +36,14 @@
 
 // konfiguracja systemu
 const unsigned long BAUD = 38400;
-const unsigned long SEND_INTERVAL_MS = 100;  // co tyle zaczyna się cykl wysyłania danych
-const uint32_t I2C_TIMEOUT_US = 3000;        // ochrona przed zawieszeniem magistrali I2C
+const unsigned long SEND_INTERVAL_MS = 100; // czas między kolejnymi cyklami wysyłania danych
+const uint32_t I2C_TIMEOUT_US = 3000; // timeout I2C na wypadek zawieszenia
 
 static unsigned long lastSendMs = 0;
 static ConnectionStatus prevStatus = CONN_WAIT_AP;
 
 // czeka, dopóki status połączenia jest równy status, wyświetlając komunikat
-static void waitWhileStatus(ConnectionStatus status,
-                            const __FlashStringHelper* line0, const __FlashStringHelper* line1) {
+static void waitWhileStatus(ConnectionStatus status, const __FlashStringHelper* line0, const __FlashStringHelper* line1) {
   while (connectionStatus == status) {
     commRequestConnection();
     commReceive();
@@ -69,7 +68,7 @@ static void onDisconnected() {
   lcdPrint(LCD_ROW_STATUS, F("DISCONNECTED"));
   lcdPrint(LCD_ROW_CMD, F("WAITING"));
 
-  // porzucenie trwającego pomiaru, aby radar nie czekał na niego po ponownym połączeniu
+  // porzucenie trwającego pomiaru sonaru, aby radar nie czekał na niego po ponownym połączeniu
   sonarCancel();
   radarPause();
   commResetSendCycle();
@@ -100,7 +99,7 @@ static void runConnected() {
   commSendNext();
 }
 
-// praca bez połączenia: tylko żądanie statusu
+// praca bez połączenia
 static void runDisconnected() {
   commRequestConnection();
 }
@@ -119,12 +118,12 @@ void setup() {
   encodersInit();
   servoInit();
   sonarInit();
-  interruptsInit(); // po encodersInit() i sonarInit()
+  interruptsInit();
 
   if (!mpuInit()) {
     lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
     lcdPrint(LCD_ROW_CMD, F("RESET THIS CAR"));
-    while (true) {} // dalsza praca bez MPU6050 nie ma sensu (brak pozycji)
+    while (true) {}
   }
 
   // oczekiwanie na połączenie
