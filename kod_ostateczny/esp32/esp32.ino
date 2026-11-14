@@ -30,7 +30,7 @@ void setup() {
   WiFi.mode(WIFI_AP);
   if (!WiFi.softAP(AP_SSID, AP_PASS)) {
     while (true) {
-      arduinoReceive(); // odpowiadanie na A:CONNECTION statusem CONN_WAIT_AP
+      arduinoUpdate(); // odpowiadanie na A:CONNECTION statusem CONN_WAIT_AP
       delay(1);
     }
   }
@@ -45,7 +45,7 @@ void setup() {
 void loop() {
   wsLoop();
   arduinoSetConnectionStatus(wsHasClients() ? CONN_OK : CONN_WAIT_CLIENT);
-  arduinoReceive();
+  arduinoUpdate();
   cameraUpdate();
   delay(1); // oddanie czasu procesora na Wi-Fi
 }

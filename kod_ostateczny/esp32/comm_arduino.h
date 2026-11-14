@@ -11,7 +11,8 @@
     - A:CONNECTION z Arduino - odpowiedź E:CONNECTION:<status>
     - E:CONNECTION:<status> - wysyłane także bez żądania przy każdej zmianie statusu i co 1 s
       [0=oczekiwanie na uruchomienie AccessPoint, 1=oczekiwanie na połączenie z komputerem, 2=połączono]
-    - komenda W: z WebSocketa > Arduino z dopisanym '\n'
+    - komenda W: z WebSocketa > Arduino z dopisanym '\n' (co najmniej 30 ms odstępu między komendami;
+      z komend czekających na wysłanie zostaje tylko najnowsza danego rodzaju, np. W:MOTOR:)
 */
 
 #pragma once
@@ -34,10 +35,11 @@ enum ConnectionStatus : uint8_t {
 // (po restarcie ESP32 Arduino mogło pozostać w stanie połączenia)
 void arduinoInit();
 
-// odbiera dostępne bajty z UART i obsługuje kompletne linie; co 1 s powtarza status połączenia
-void arduinoReceive();
+// odbiera dostępne bajty z UART i obsługuje kompletne linie, wysyła komendy z kolejki
+// i co 1 s powtarza status połączenia; wywoływać w każdym obiegu loop()
+void arduinoUpdate();
 
-// wysyła komendę W: do Arduino z dopisanym '\n';
+// wysyła komendę W: do Arduino z dopisanym '\n' (od razu albo z kolejki, aby zachować odstęp między komendami);
 // odrzuca komendy, które nie zaczynają się od "W:", nie mieszczą się w buforze Arduino lub zawierają znaki inne niż drukowalne ASCII
 void arduinoSendCommand(const uint8_t* payload, size_t length);
 
