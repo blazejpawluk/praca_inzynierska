@@ -11,6 +11,7 @@
 #include "servo.h"
 #include "radar.h"
 #include "position.h"
+#include "mpu.h"
 
 ConnectionStatus connectionStatus = CONN_WAIT_AP;
 
@@ -19,6 +20,9 @@ ConnectionStatus connectionStatus = CONN_WAIT_AP;
 const uint8_t RX_BUF_SIZE = 40;
 static char rxBuf[RX_BUF_SIZE];
 static uint8_t rxLen = 0;
+static bool rxSkipLine = false; // odrzucenie znaków do końca bieżącej linii
+
+const unsigned long CALIB_SETTLE_MS = 500;
 
 // timeout komend
 const unsigned long CMD_TIMEOUT_MS = 1000;
@@ -70,6 +74,22 @@ static bool startsWith(const char* line, PGM_P prefix, const char*& args) {
   return true;
 }
 
+// kalibracja żyroskopu na żądanie (W:CALIBRATE); pojazd musi stać, więc najpierw zatrzymuje silniki
+static void calibrate() {
+  motorsSet(0, 0);
+  lcdPrint(LCD_ROW_STATUS, F("CALIBRATING"));
+  delay(CALIB_SETTLE_MS);
+
+  bool ok = mpuCalibrate(MPU_CALIB_SAMPLES);
+  lcdPrint(LCD_ROW_STATUS, ok ? F("CALIBRATED") : F("CALIB ERROR"));
+
+  positionInit();
+
+  while (Serial.available() > 0) Serial.read();
+  rxLen = 0;
+  rxSkipLine = true;
+}
+
 static void handleLine(const char* line) {
   if (line[0] == 'W' && connectionStatus != CONN_OK) return;
 
@@ -98,6 +118,10 @@ static void handleLine(const char* line) {
   // W:RADAROFF
   } else if (strcmp_P(line, PSTR("W:RADAROFF")) == 0) {
     radarStop();
+
+  // W:CALIBRATE
+  } else if (strcmp_P(line, PSTR("W:CALIBRATE")) == 0) {
+    calibrate();
 
   // W:MSG:<text>
   } else if (startsWith(line, PSTR("W:MSG:"), rest)) {
@@ -131,8 +155,11 @@ void commReceive() {
     if (c == '\r') continue;
     if (c == '\n') {
       rxBuf[rxLen] = '\0';
-      if (rxLen > 0) handleLine(rxBuf);
+      if (rxLen > 0 && !rxSkipLine) handleLine(rxBuf);
+      else rxSkipLine = false;
       rxLen = 0;
+    } else if (rxSkipLine) {
+      continue;
     } else if (rxLen < RX_BUF_SIZE - 1) {
       rxBuf[rxLen++] = c; // znaki ponad rozmiar bufora są pomijane
     }

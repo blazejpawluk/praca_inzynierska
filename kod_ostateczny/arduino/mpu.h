@@ -17,6 +17,9 @@
 // okres próbkowania MPU6050 [us] (200 Hz)
 const unsigned long MPU_SAMPLE_US = 5000;
 
+// liczba próbek kalibracji
+const uint16_t MPU_CALIB_SAMPLES = 400;
+
 // odczyt przeskalowany do liczb całkowitych
 struct MpuData {
   int16_t ax, ay, az; // przyspieszenie [mg]
@@ -24,8 +27,11 @@ struct MpuData {
   int16_t temp; // temperatura [0.01 stopnia C]
 };
 
-// zwraca false, jeśli układ nie odpowiada
+// konfiguruje układ i kalibruje żyroskop (MPU_CALIB_SAMPLES próbek);
+// zwraca false, jeśli układ nie odpowiada lub kalibracja się nie powiodła
 bool mpuInit();
+
+bool mpuCalibrate(uint16_t samples);
 
 // true, jeśli od ostatniego odczytu powstała nowa próbka
 bool mpuDataReady();

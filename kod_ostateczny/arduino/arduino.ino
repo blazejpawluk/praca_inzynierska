@@ -120,6 +120,8 @@ void setup() {
   sonarInit();
   interruptsInit();
 
+  // mpuInit() kalibruje też żyroskop - pojazd nie może się wtedy ruszać
+  lcdPrint(LCD_ROW_CMD, F("GYRO CALIBRATION"));
   if (!mpuInit()) {
     lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
     lcdPrint(LCD_ROW_CMD, F("RESET THIS CAR"));

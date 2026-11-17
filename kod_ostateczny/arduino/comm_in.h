@@ -13,6 +13,7 @@
     - W:RADAR:<from>,<to>,<step>,<interval> - uruchomienie radaru [stopnie, stopnie, stopnie, ms]
     - W:RADAROFF - wyłączenie radaru
     - W:MSG:<text> - tekst do wyświetlenia na LCD (maksymalnie 16 znaków)
+    - W:CALIBRATE - kalibracja żyroskopu
     - E:CONNECTION:<status> - status połączenia z komputerem [0=oczekiwanie na uruchomienie AccessPoint, 1=oczekiwanie na połączenie z komputerem, 2=połączono]
 
   Komendy W: są wykonywane tylko przy statusie CONN_OK.
