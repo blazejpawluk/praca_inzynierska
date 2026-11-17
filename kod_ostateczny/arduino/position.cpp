@@ -95,20 +95,22 @@ static void positionUpdate() {
   prevR = r;
   velocity = updateVelocity(dl, dr, dtUs);
 
+  float ds = (dirL * dl + dirR * dr) * DIST_PER_PULSE_MM / 2;
+
   // przy błędzie odczytu przyjmujemy brak obrotu w tej próbce
   float gz = 0;
   mpuReadGz(gz);
 
-  // całkowanie metodą trapezów
-  heading += (prevGz + gz) / 2 * dt;
+  float dTheta = (prevGz + gz) / 2 * dt;
   prevGz = gz;
 
+  float rad = radians(heading + dTheta / 2);
+  posX += ds * cos(rad);
+  posY += ds * sin(rad);
+
+  heading += dTheta;
   if (heading > 180) heading -= 360;
   else if (heading <= -180) heading += 360;
-  float rad = radians(heading);
-
-  posX += velocity * cos(rad) * dt;
-  posY += velocity * sin(rad) * dt;
 }
 
 void positionPoll() {
