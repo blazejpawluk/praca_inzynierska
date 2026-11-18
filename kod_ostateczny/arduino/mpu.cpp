@@ -6,6 +6,7 @@
 */
 
 #include "mpu.h"
+#include "i2c.h"
 #include <Wire.h>
 
 const uint8_t MPU_ADDR = 0x68;
@@ -61,6 +62,7 @@ static float gyroOffset[3] = {0, 0, 0}; // X, Y, Z
 
 // zapisuje bajt do rejestru i zwraca true jeśli układ potwierdził
 static bool writeReg(uint8_t reg, uint8_t value) {
+  if (!i2cReady()) return false;
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(reg);
   Wire.write(value);
@@ -69,6 +71,7 @@ static bool writeReg(uint8_t reg, uint8_t value) {
 
 // odczyt len kolejnych rejestrów od reg
 static bool readRegs(uint8_t reg, uint8_t* buf, uint8_t len) {
+  if (!i2cReady()) return false;
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(reg);
   if (Wire.endTransmission(false) != 0) return false; // repeated START
@@ -90,7 +93,7 @@ static bool isPresent() {
          id == MPU_WHO_AM_I_CLONE1 || id == MPU_WHO_AM_I_CLONE2;
 }
 
-bool mpuInit() {
+bool mpuConfigure() {
   if (!isPresent()) return false;
   if (!writeReg(MPU_REG_PWR_MGMT_1, MPU_PWR1_DEVICE_RESET)) return false;
   delay(MPU_RESET_MS);
@@ -105,10 +108,12 @@ bool mpuInit() {
   ok &= writeReg(MPU_REG_INT_ENABLE, MPU_INT_DATA_RDY);
 
   delay(MPU_STARTUP_MS);
-  if (!ok) return false;
+  return ok;
+}
 
+bool mpuInit() {
   // pojazd przy uruchomieniu stoi, więc od razu wyznaczamy offset żyroskopu
-  return mpuCalibrate(MPU_CALIB_SAMPLES);
+  return mpuConfigure() && mpuCalibrate(MPU_CALIB_SAMPLES);
 }
 
 bool mpuCalibrate(uint16_t samples) {
@@ -123,7 +128,7 @@ bool mpuCalibrate(uint16_t samples) {
 
   // każda próbka jest brana dopiero po ustawieniu flagi DATA_RDY, aby nie liczyć tej samej próbki kilka razy
   while (count < samples) {
-    if (millis() - startMs > timeoutMs) return false;
+    if (!i2cReady() || millis() - startMs > timeoutMs) return false;
     if (!mpuDataReady()) continue;
 
     uint8_t b[6];

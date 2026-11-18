@@ -19,6 +19,9 @@ const uint8_t LCD_ROW_CMD = 1; // ostatnia komenda / komunikat pomocniczy
 
 void lcdInit();
 
+// przywraca stan wyświetlacza i jego zawartość po awarii I2C (bez długich opóźnień lcdInit)
+void lcdRecover();
+
 // wypisuje tekst w wierszu (dopełniony spacjami, przycięty do LCD_COLS);
 // zapisywane są tylko znaki, które się zmieniły
 void lcdPrint(uint8_t row, const char* text); // tekst z RAM (np. odebrana komenda)

@@ -31,6 +31,10 @@ struct MpuData {
 // zwraca false, jeśli układ nie odpowiada lub kalibracja się nie powiodła
 bool mpuInit();
 
+// resetuje i konfiguruje układ bez kalibracji (offset żyroskopu pozostaje bez zmian);
+// używane po awarii I2C, gdy pojazd mógł być w ruchu
+bool mpuConfigure();
+
 bool mpuCalibrate(uint16_t samples);
 
 // true, jeśli od ostatniego odczytu powstała nowa próbka

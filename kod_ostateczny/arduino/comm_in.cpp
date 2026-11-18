@@ -84,10 +84,7 @@ static void calibrate() {
   lcdPrint(LCD_ROW_STATUS, ok ? F("CALIBRATED") : F("CALIB ERROR"));
 
   positionInit();
-
-  while (Serial.available() > 0) Serial.read();
-  rxLen = 0;
-  rxSkipLine = true;
+  commFlushInput();
 }
 
 static void handleLine(const char* line) {
@@ -164,6 +161,12 @@ void commReceive() {
       rxBuf[rxLen++] = c; // znaki ponad rozmiar bufora są pomijane
     }
   }
+}
+
+void commFlushInput() {
+  while (Serial.available() > 0) Serial.read();
+  rxLen = 0;
+  rxSkipLine = true;
 }
 
 void commShowLastCommand() {

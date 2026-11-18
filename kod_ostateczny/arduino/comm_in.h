@@ -41,6 +41,9 @@ extern ConnectionStatus connectionStatus;
 // odbiera dostępne bajty z UART i wykonuje kompletne komendy
 void commReceive();
 
+// porzuca odebrane bajty oraz resztę bieżącej linii
+void commFlushInput();
+
 // wyświetla ostatnią komendę w wierszu LCD_ROW_CMD (najwyżej co LCD_REFRESH_MS)
 void commShowLastCommand();
 

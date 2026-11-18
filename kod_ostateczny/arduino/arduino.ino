@@ -21,7 +21,7 @@
       połączenie I2C: SDA=A4, SCL=A5 (wspólne z LCD)
 */
 
-#include <Wire.h>
+#include "i2c.h"
 #include "comm_in.h"
 #include "comm_out.h"
 #include "lcd.h"
@@ -37,16 +37,56 @@
 // konfiguracja systemu
 const unsigned long BAUD = 38400;
 const unsigned long SEND_INTERVAL_MS = 100; // czas między kolejnymi cyklami wysyłania danych
-const uint32_t I2C_TIMEOUT_US = 3000; // timeout I2C na wypadek zawieszenia
+const unsigned long I2C_RETRY_MS = 1000; // odstęp między próbami odzyskania magistrali I2C
 
 static unsigned long lastSendMs = 0;
+static unsigned long lastI2cRetryMs = 0;
+static unsigned int i2cRecoveries = 0;
 static ConnectionStatus prevStatus = CONN_WAIT_AP;
+
+// po awarii I2C zatrzymuje pojazd (bez żyroskopu pozycja jest nieznana) i próbuje odzyskać magistralę
+static void handleI2cFault() {
+  if (i2cReady()) return;
+
+  motorsSet(0, 0);
+  if (millis() - lastI2cRetryMs < I2C_RETRY_MS) return;
+  lastI2cRetryMs = millis();
+
+  if (!i2cRecover() || !mpuConfigure()) {
+    i2cMarkFault();
+    return;
+  }
+
+  lcdRecover();
+  positionInit();
+  commFlushInput(); // bufor UART mógł się przepełnić podczas odzyskiwania
+
+  // licznik zostaje na LCD, aby było widać, że awaria wystąpiła
+  char text[LCD_COLS + 1];
+  snprintf_P(text, sizeof(text), PSTR("I2C RESETS: %u"), ++i2cRecoveries);
+  lcdPrint(LCD_ROW_STATUS, text);
+}
+
+// inicjalizuje MPU6050, ponawiając próby aż do skutku
+static void initMpu() {
+  lcdPrint(LCD_ROW_CMD, F("GYRO CALIBRATION"));
+  while (!mpuInit()) {
+    lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
+    lcdPrint(LCD_ROW_CMD, F("RETRYING"));
+    delay(I2C_RETRY_MS);
+
+    if (i2cRecover()) lcdRecover();
+    lcdPrint(LCD_ROW_STATUS, F("INITIALIZATION"));
+    lcdPrint(LCD_ROW_CMD, F("GYRO CALIBRATION"));
+  }
+}
 
 // czeka, dopóki status połączenia jest równy status, wyświetlając komunikat
 static void waitWhileStatus(ConnectionStatus status, const __FlashStringHelper* line0, const __FlashStringHelper* line1) {
   while (connectionStatus == status) {
     commRequestConnection();
     commReceive();
+    handleI2cFault();
 
     lcdPrint(LCD_ROW_STATUS, line0);
     lcdPrint(LCD_ROW_CMD, line1);
@@ -107,8 +147,7 @@ static void runDisconnected() {
 
 void setup() {
   // magistrala I2C wspólna dla LCD i MPU6050
-  Wire.begin();
-  Wire.setWireTimeout(I2C_TIMEOUT_US, true);
+  i2cInit();
 
   lcdInit();
   lcdPrint(LCD_ROW_STATUS, F("INITIALIZATION"));
@@ -122,12 +161,7 @@ void setup() {
   interruptsInit();
 
   // mpuInit() kalibruje też żyroskop - pojazd nie może się wtedy ruszać
-  lcdPrint(LCD_ROW_CMD, F("GYRO CALIBRATION"));
-  if (!mpuInit()) {
-    lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
-    lcdPrint(LCD_ROW_CMD, F("RESET THIS CAR"));
-    while (true) {}
-  }
+  initMpu();
 
   // oczekiwanie na połączenie
   waitWhileStatus(CONN_WAIT_AP, F("WAITING FOR WIFI"), F(""));
@@ -140,6 +174,7 @@ void setup() {
 
 void loop() {
   commReceive();
+  handleI2cFault();
   commShowLastCommand();
 
   ConnectionStatus status = connectionStatus;
