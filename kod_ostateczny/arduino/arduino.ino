@@ -41,7 +41,6 @@ const unsigned long I2C_RETRY_MS = 1000; // odstęp między próbami odzyskania 
 
 static unsigned long lastSendMs = 0;
 static unsigned long lastI2cRetryMs = 0;
-static unsigned int i2cRecoveries = 0;
 static ConnectionStatus prevStatus = CONN_WAIT_AP;
 
 // po awarii I2C zatrzymuje pojazd (bez żyroskopu pozycja jest nieznana) i próbuje odzyskać magistralę
@@ -60,24 +59,19 @@ static void handleI2cFault() {
   lcdRecover();
   positionInit();
   commFlushInput(); // bufor UART mógł się przepełnić podczas odzyskiwania
-
-  // licznik zostaje na LCD, aby było widać, że awaria wystąpiła
-  char text[LCD_COLS + 1];
-  snprintf_P(text, sizeof(text), PSTR("I2C RESETS: %u"), ++i2cRecoveries);
-  lcdPrint(LCD_ROW_STATUS, text);
 }
 
 // inicjalizuje MPU6050, ponawiając próby aż do skutku
 static void initMpu() {
-  lcdPrint(LCD_ROW_CMD, F("GYRO CALIBRATION"));
+  lcdPrint(LCD_ROW_INFO, F("GYRO CALIBRATION"));
   while (!mpuInit()) {
     lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
-    lcdPrint(LCD_ROW_CMD, F("RETRYING"));
+    lcdPrint(LCD_ROW_INFO, F("RETRYING"));
     delay(I2C_RETRY_MS);
 
     if (i2cRecover()) lcdRecover();
     lcdPrint(LCD_ROW_STATUS, F("INITIALIZATION"));
-    lcdPrint(LCD_ROW_CMD, F("GYRO CALIBRATION"));
+    lcdPrint(LCD_ROW_INFO, F("GYRO CALIBRATION"));
   }
 }
 
@@ -89,7 +83,7 @@ static void waitWhileStatus(ConnectionStatus status, const __FlashStringHelper* 
     handleI2cFault();
 
     lcdPrint(LCD_ROW_STATUS, line0);
-    lcdPrint(LCD_ROW_CMD, line1);
+    lcdPrint(LCD_ROW_INFO, line1);
   }
 }
 
@@ -97,16 +91,15 @@ static void waitWhileStatus(ConnectionStatus status, const __FlashStringHelper* 
 static void onConnected() {
   positionInit();
   lcdPrint(LCD_ROW_STATUS, F("CONNECTED"));
-  lcdPrint(LCD_ROW_CMD, F("READY TO WORK"));
+  lcdPrint(LCD_ROW_INFO, F("READY TO WORK"));
 }
 
 // przejście do stanu braku połączenia
 static void onDisconnected() {
   motorsSet(0, 0);
 
-  commClearLastCommand();
   lcdPrint(LCD_ROW_STATUS, F("DISCONNECTED"));
-  lcdPrint(LCD_ROW_CMD, F("WAITING"));
+  lcdPrint(LCD_ROW_INFO, F("WAITING"));
 
   // porzucenie trwającego pomiaru sonaru, aby radar nie czekał na niego po ponownym połączeniu
   sonarCancel();
@@ -175,7 +168,6 @@ void setup() {
 void loop() {
   commReceive();
   handleI2cFault();
-  commShowLastCommand();
 
   ConnectionStatus status = connectionStatus;
   if (status == CONN_OK && prevStatus != CONN_OK) onConnected();

@@ -12,7 +12,7 @@
     - W:RESETPOS - reset pozycji do (0,0,0)
     - W:RADAR:<from>,<to>,<step>,<interval> - uruchomienie radaru [stopnie, stopnie, stopnie, ms]
     - W:RADAROFF - wyłączenie radaru
-    - W:MSG:<text> - tekst do wyświetlenia na LCD (maksymalnie 16 znaków)
+    - W:MSG:<line1>|<line2> - tekst na LCD (po 16 znaków na linię); bez "|<line2>" druga linia jest czyszczona
     - W:CALIBRATE - kalibracja żyroskopu
     - E:CONNECTION:<status> - status połączenia z komputerem [0=oczekiwanie na uruchomienie AccessPoint, 1=oczekiwanie na połączenie z komputerem, 2=połączono]
 
@@ -43,12 +43,6 @@ void commReceive();
 
 // porzuca odebrane bajty oraz resztę bieżącej linii
 void commFlushInput();
-
-// wyświetla ostatnią komendę w wierszu LCD_ROW_CMD (najwyżej co LCD_REFRESH_MS)
-void commShowLastCommand();
-
-// porzuca komendę czekającą na wyświetlenie
-void commClearLastCommand();
 
 // zatrzymuje silniki, jeśli przez CMD_TIMEOUT_MS nie przyszła żadna komenda W:
 // (frontend podczas jazdy powinien powtarzać W:MOTOR co ~500 ms)

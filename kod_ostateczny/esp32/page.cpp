@@ -173,11 +173,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       .log-h.sent{--c:var(--amber);color:var(--amber)} .log-h.recv{--c:var(--cyan);color:var(--cyan)}
 
       .lcd-box{flex-shrink:0;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px}
-      .lcd{background:#041217;border:2px solid #0d2c36;border-radius:6px;padding:8px;margin:6px 0 8px;box-shadow:inset 0 0 18px rgba(0,229,255,.08)}
+      .lcd{display:grid;gap:2px;background:#041217;border:2px solid #0d2c36;border-radius:6px;padding:8px;margin:6px 0 8px;box-shadow:inset 0 0 18px rgba(0,229,255,.08)}
       .lcd-row{display:grid;gap:2px}
       .lcd-row span{background:rgba(0,229,255,.06);font-family:var(--mono);font-size:13px;text-align:center;line-height:20px;color:var(--cyan);
         text-shadow:0 0 6px rgba(0,229,255,.8);border-radius:1px;min-width:0}
       .lcd-in{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center}
+      .lcd-in+.lcd-in{margin-top:6px}
       .lcd-in .cc{font-family:var(--mono);font-size:10px;color:var(--dim);min-width:38px;text-align:right}
       .lcd-in .cc.warn{color:var(--red)}
       .lcd-actions{display:flex;gap:6px;margin-top:8px}
@@ -774,8 +775,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           </div>
           <div class="lcd-box">
             <div class="card-h" style="--ch:var(--amber)">Tekst na LCD <span id="lcd-size" style="color:var(--dim)"></span></div>
-            <div class="lcd"><div class="lcd-row" id="lcd-row"></div></div>
-            <div class="lcd-in"><input type="text" id="lcd-text" placeholder="Tekst do wyświetlenia" autocomplete="off"><span class="cc" id="lcd-cc"></span></div>
+            <div class="lcd"><div class="lcd-row" id="lcd-row-0"></div><div class="lcd-row" id="lcd-row-1"></div></div>
+            <div class="lcd-in"><input type="text" id="lcd-text-0" placeholder="Pierwsza linia" autocomplete="off"><span class="cc" id="lcd-cc-0"></span></div>
+            <div class="lcd-in"><input type="text" id="lcd-text-1" placeholder="Druga linia" autocomplete="off"><span class="cc" id="lcd-cc-1"></span></div>
             <div class="lcd-actions">
               <button class="btn solid sm" id="lcd-send" style="--c:var(--amber)">Wyślij na LCD</button>
               <button class="btn sm" id="lcd-clear" style="--c:var(--amber)">Wyczyść LCD</button>
@@ -1564,22 +1566,28 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         msg.textContent = err ? err + ' Mapa używa ostatnich poprawnych wartości.' : 'l occ i l free działają na kolejne pomiary; l 0 i granice także na zapisane komórki.';
       }
 
-      // WIDOK: LCD (jedna linia)
-      const lcdRow = $('#lcd-row'), lcdIn = $('#lcd-text');
-      $('#lcd-size').textContent = `${LCD_COLS} znaków`;
-      lcdRow.style.gridTemplateColumns = `repeat(${LCD_COLS},1fr)`;
-      for (let i = 0; i < LCD_COLS; i++) lcdRow.appendChild(document.createElement('span'));
-      lcdIn.maxLength = LCD_COLS;
+      // WIDOK: LCD (dwie linie)
+      const LCD_LINE_SEP = '|'; // separator linii w W:MSG
+      const LCD_BAD_CHARS = /[^\x20-\x7b\x7d\x7e]/; // znaki spoza ASCII oraz separator
+      const lcdLines = [0, 1].map(i => ({row: $(`#lcd-row-${i}`), input: $(`#lcd-text-${i}`), cc: $(`#lcd-cc-${i}`)}));
+      $('#lcd-size').textContent = `2 × ${LCD_COLS} znaków`;
+      lcdLines.forEach(({row, input}) => {
+        row.style.gridTemplateColumns = `repeat(${LCD_COLS},1fr)`;
+        for (let i = 0; i < LCD_COLS; i++) row.appendChild(document.createElement('span'));
+        input.maxLength = LCD_COLS;
+        input.addEventListener('input', renderLcd);
+      });
 
       function renderLcd() {
-        const s = lcdIn.value.padEnd(LCD_COLS).slice(0, LCD_COLS);
-        [...lcdRow.children].forEach((sp, i) => sp.textContent = s[i] === ' ' ? NBSP : s[i]);
-        const cc = $('#lcd-cc'), bad = /[^\x20-\x7e]/.test(lcdIn.value);
-        cc.textContent = bad ? '!ASCII' : `${lcdIn.value.length}/${LCD_COLS}`;
-        cc.classList.toggle('warn', bad);
-        cc.title = bad ? 'LCD (HD44780) nie wyświetli polskich znaków' : '';
+        lcdLines.forEach(({row, input, cc}) => {
+          const s = input.value.padEnd(LCD_COLS).slice(0, LCD_COLS);
+          [...row.children].forEach((sp, i) => sp.textContent = s[i] === ' ' ? NBSP : s[i]);
+          const bad = LCD_BAD_CHARS.test(input.value);
+          cc.textContent = bad ? '!ZNAK' : `${input.value.length}/${LCD_COLS}`;
+          cc.classList.toggle('warn', bad);
+          cc.title = bad ? `Dozwolone są znaki ASCII bez ${LCD_LINE_SEP}` : '';
+        });
       }
-      lcdIn.addEventListener('input', renderLcd);
       renderLcd();
 
       // WIDOK: ODOMETRIA
@@ -1922,15 +1930,17 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       $('#radar-scan').onclick = toggleScan;
 
       // LOGIKA: LCD
-      lcdIn.addEventListener('keydown', e => {
+      lcdLines.forEach(({input}) => input.addEventListener('keydown', e => {
         if (e.key === 'Enter') $('#lcd-send').click();
-      });
-      // ESP32 odrzuca komendy ze znakami spoza ASCII - ostrzeżenie pokazuje renderLcd()
+      }));
+      // niedozwolone znaki nie są wysyłane - ostrzeżenie pokazuje renderLcd()
       $('#lcd-send').onclick = () => {
-        if (!/[^\x20-\x7e]/.test(lcdIn.value)) Transport.send('W:MSG:' + lcdIn.value);
+        const [first, second] = lcdLines.map(({input}) => input.value);
+        if (LCD_BAD_CHARS.test(first + second)) return;
+        Transport.send('W:MSG:' + first + (second ? LCD_LINE_SEP + second : ''));
       };
       $('#lcd-clear').onclick = () => {
-        lcdIn.value = '';
+        lcdLines.forEach(({input}) => input.value = '');
         renderLcd();
         Transport.send('W:MSG:');
       };

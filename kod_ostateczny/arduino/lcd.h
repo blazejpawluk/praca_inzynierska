@@ -14,8 +14,8 @@
 const uint8_t LCD_COLS = 16;
 
 // przeznaczenie wierszy
-const uint8_t LCD_ROW_STATUS = 0; // stan pojazdu / komunikat W:MSG
-const uint8_t LCD_ROW_CMD = 1; // ostatnia komenda / komunikat pomocniczy
+const uint8_t LCD_ROW_STATUS = 0; // stan inicjalizacji lub połączenia / pierwsza linia W:MSG
+const uint8_t LCD_ROW_INFO = 1; // komunikat pomocniczy / druga linia W:MSG
 
 void lcdInit();
 
@@ -24,5 +24,5 @@ void lcdRecover();
 
 // wypisuje tekst w wierszu (dopełniony spacjami, przycięty do LCD_COLS);
 // zapisywane są tylko znaki, które się zmieniły
-void lcdPrint(uint8_t row, const char* text); // tekst z RAM (np. odebrana komenda)
+void lcdPrint(uint8_t row, const char* text); // tekst z RAM (np. odebrany komunikat)
 void lcdPrint(uint8_t row, const __FlashStringHelper* text); // stały tekst: lcdPrint(0, F("TEKST"))

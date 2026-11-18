@@ -15,7 +15,7 @@
 
 ConnectionStatus connectionStatus = CONN_WAIT_AP;
 
-// bufor odbiorczy; najdłuższa poprawna komenda: "W:RADAR:-32767,-32767,-32767,-32767" (35 znaków) + '\0';
+// bufor odbiorczy; najdłuższa poprawna komenda: W:MSG z dwiema pełnymi liniami (39 znaków) + '\0';
 // przy rozszerzaniu protokołu trzeba sprawdzić, czy nowe komendy się mieszczą
 const uint8_t RX_BUF_SIZE = 40;
 static char rxBuf[RX_BUF_SIZE];
@@ -28,12 +28,7 @@ const unsigned long CALIB_SETTLE_MS = 500;
 const unsigned long CMD_TIMEOUT_MS = 1000;
 static unsigned long lastCmdMs = 0;
 
-// ostatnia komenda W: pokazywana w wierszu LCD_ROW_CMD najwyżej co LCD_REFRESH_MS
-// (zapis jednego znaku przez I2C trwa ~1.4 ms, więc odświeżanie przy każdej komendzie blokowałoby pętlę)
-const unsigned long LCD_REFRESH_MS = 250;
-static char lastCmd[LCD_COLS + 1];
-static bool lastCmdPending = false;
-static unsigned long lastLcdMs = 0;
+const char MSG_LINE_SEP = '|'; // separator linii w W:MSG
 
 const uint8_t MAX_ARGS = 4;
 
@@ -77,14 +72,26 @@ static bool startsWith(const char* line, PGM_P prefix, const char*& args) {
 // kalibracja żyroskopu na żądanie (W:CALIBRATE); pojazd musi stać, więc najpierw zatrzymuje silniki
 static void calibrate() {
   motorsSet(0, 0);
-  lcdPrint(LCD_ROW_STATUS, F("CALIBRATING"));
   delay(CALIB_SETTLE_MS);
 
-  bool ok = mpuCalibrate(MPU_CALIB_SAMPLES);
-  lcdPrint(LCD_ROW_STATUS, ok ? F("CALIBRATED") : F("CALIB ERROR"));
+  mpuCalibrate(MPU_CALIB_SAMPLES);
 
   positionInit();
   commFlushInput();
+}
+
+// wyświetla tekst W:MSG; bez separatora druga linia jest czyszczona
+static void showMessage(const char* text) {
+  const char* sep = strchr(text, MSG_LINE_SEP);
+  size_t len = sep ? (size_t)(sep - text) : strlen(text);
+  if (len > LCD_COLS) len = LCD_COLS;
+
+  char firstLine[LCD_COLS + 1];
+  memcpy(firstLine, text, len);
+  firstLine[len] = '\0';
+
+  lcdPrint(LCD_ROW_STATUS, firstLine);
+  lcdPrint(LCD_ROW_INFO, sep ? sep + 1 : "");
 }
 
 static void handleLine(const char* line) {
@@ -120,11 +127,9 @@ static void handleLine(const char* line) {
   } else if (strcmp_P(line, PSTR("W:CALIBRATE")) == 0) {
     calibrate();
 
-  // W:MSG:<text>
+  // W:MSG:<line1>|<line2>
   } else if (startsWith(line, PSTR("W:MSG:"), rest)) {
-    lcdPrint(LCD_ROW_STATUS, rest);
-    lastCmdMs = millis();
-    return;
+    showMessage(rest);
 
   // E:CONNECTION:<status>
   } else if (startsWith(line, PSTR("E:CONNECTION:"), rest)) {
@@ -139,11 +144,6 @@ static void handleLine(const char* line) {
   }
 
   lastCmdMs = millis();
-
-  // zapamiętanie komendy do wyświetlenia przez commShowLastCommand()
-  strncpy(lastCmd, line, LCD_COLS);
-  lastCmd[LCD_COLS] = '\0';
-  lastCmdPending = true;
 }
 
 void commReceive() {
@@ -169,20 +169,8 @@ void commFlushInput() {
   rxSkipLine = true;
 }
 
-void commShowLastCommand() {
-  if (!lastCmdPending || millis() - lastLcdMs < LCD_REFRESH_MS) return;
-  lcdPrint(LCD_ROW_CMD, lastCmd);
-  lastCmdPending = false;
-  lastLcdMs = millis();
-}
-
-void commClearLastCommand() {
-  lastCmdPending = false;
-}
-
 void commCheckTimeout() {
   if ((motorSpeedL != 0 || motorSpeedR != 0) && millis() - lastCmdMs > CMD_TIMEOUT_MS) {
     motorsSet(0, 0);
-    lcdPrint(LCD_ROW_CMD, F("NO COMMANDS"));
   }
 }
