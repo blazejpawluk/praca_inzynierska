@@ -78,9 +78,10 @@ static void onDisconnected() {
 static void handleSonarResult() {
   unsigned int mm;
   int angle;
-  if (!sonarPoll(mm, angle)) return;
+  Pose pose;
+  if (!sonarPoll(mm, angle, pose)) return;
 
-  commQueueDist(angle, mm);
+  commQueueDist(angle, mm, pose);
   radarOnMeasurement();
 }
 

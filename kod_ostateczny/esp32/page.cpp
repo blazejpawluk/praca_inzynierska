@@ -1153,10 +1153,14 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       }
 
       // DANE: RAMKI TELEMETRII
-      // ramka: {raw, encL, encR, speed, ax, ay, az, gx, gy, gz, temp, servo, sonar, x, y, theta} (tylko niektóre są w ramce)
+      // ramka: {raw, encL, encR, speed, ax, ay, az, gx, gy, gz, temp, servo, sonar, sonarX, sonarY, sonarTheta, x, y, theta} (tylko niektóre są w ramce)
       const FRAMES = {
         ENC: [2, ([encL, encR]) => ({ encL, encR })],
-        DIST: [2, ([servo, mm]) => ({ servo, sonar: mm ? mm / 10 : NO_ECHO })], // mm = 0: brak echa
+        // mm = 0: brak echa; sonarX, sonarY, sonarTheta: poza z chwili pomiaru (osobno od bieżącej pozy x, y, theta)
+        DIST: [5, ([servo, mm, x, y, theta]) => ({
+          servo, sonar: mm ? mm / 10 : NO_ECHO,
+          sonarX: x / 10, sonarY: y / 10, sonarTheta: theta / 100,
+        })],
         MPU: [7, ([ax, ay, az, gx, gy, gz, temp]) => ({
           ax: ax / 1000, ay: ay / 1000, az: az / 1000,
           gx: gx / 100, gy: gy / 100, gz: gz / 100, temp: temp / 100,

@@ -28,6 +28,16 @@ static SendPhase sendPhase = SEND_IDLE;
 static bool distPending = false;
 static int distAngle = 0;
 static unsigned int distMm = 0;
+static Pose distPose = {0, 0, 0};
+
+// wypisuje pozę w formacie <x>,<y>,<theta>
+static void printPose(const Pose& pose) {
+  Serial.print(lround(pose.x));
+  Serial.print(',');
+  Serial.print(lround(pose.y));
+  Serial.print(',');
+  Serial.print(lround(pose.heading * 100));
+}
 
 static void sendEnc() {
   unsigned long left, right;
@@ -39,11 +49,14 @@ static void sendEnc() {
   Serial.println(right);
 }
 
-static void sendDist(int angle, unsigned int mm) {
+static void sendDist(int angle, unsigned int mm, const Pose& pose) {
   Serial.print(F("A:DIST:"));
   Serial.print(angle);
   Serial.print(',');
-  Serial.println(mm);
+  Serial.print(mm);
+  Serial.print(',');
+  printPose(pose);
+  Serial.println();
 }
 
 static void sendMPU() {
@@ -68,18 +81,15 @@ static void sendMPU() {
 
 static void sendPos() {
   Serial.print(F("A:POS:"));
-  Serial.print(lround(posX));
-  Serial.print(',');
-  Serial.print(lround(posY));
-  Serial.print(',');
-  Serial.print(lround(heading * 100));
+  printPose(positionGet());
   Serial.print(',');
   Serial.println(lround(velocity));
 }
 
-void commQueueDist(int angle, unsigned int mm) {
+void commQueueDist(int angle, unsigned int mm, const Pose& pose) {
   distAngle = angle;
   distMm = mm;
+  distPose = pose;
   distPending = true;
 }
 
@@ -100,7 +110,7 @@ void commSendNext() {
   // pomiar radaru jest wysyłany od razu; pomiar z cyklu dopiero w fazie DIST (po ENC)
   if (distPending && (radarOn || sendPhase == SEND_IDLE || sendPhase == SEND_DIST)) {
     distPending = false;
-    sendDist(distAngle, distMm);
+    sendDist(distAngle, distMm, distPose);
     if (sendPhase == SEND_DIST) sendPhase = SEND_MPU;
     return;
   }

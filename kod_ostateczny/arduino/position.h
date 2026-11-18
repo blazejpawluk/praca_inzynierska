@@ -15,6 +15,15 @@ extern float posX, posY; // pozycja [mm]
 extern float heading; // kierunek jazdy [stopnie, (-180, 180]]
 extern float velocity; // prędkość [mm/s]
 
+// poza pojazdu
+struct Pose {
+  float x, y; // pozycja [mm]
+  float heading; // kierunek jazdy [stopnie, (-180, 180]]
+};
+
+// zwraca aktualną pozę
+Pose positionGet();
+
 // zeruje bufory pomocnicze i czas ostatniej próbki (bez zmiany pozycji);
 void positionInit();
 

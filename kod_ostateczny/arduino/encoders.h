@@ -21,8 +21,8 @@ const uint8_t ENC_R_BIT = 0b010; // PC1 = A1
 
 void encodersInit();
 
-// liczba impulsów od uruchomienia (odczyt atomowy)
+// liczba impulsów od uruchomienia (odczyt atomowy); impulsem jest każde zbocze, więc na szczelinę przypadają 2
 void encodersRead(unsigned long& left, unsigned long& right);
 
-// wywoływane z przerwania PCINT1; rising – bity pinów, na których wystąpiło zbocze narastające
-void encodersISR(uint8_t rising, unsigned long now);
+// wywoływane z przerwania PCINT1; changed – bity pinów, które zmieniły stan
+void encodersISR(uint8_t changed, unsigned long now);

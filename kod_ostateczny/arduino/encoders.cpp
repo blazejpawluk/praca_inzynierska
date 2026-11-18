@@ -30,15 +30,15 @@ void encodersRead(unsigned long& left, unsigned long& right) {
   interrupts();
 }
 
-void encodersISR(uint8_t rising, unsigned long now) {
+void encodersISR(uint8_t changed, unsigned long now) {
   static unsigned long lastL = 0;
   static unsigned long lastR = 0;
 
-  if ((rising & ENC_L_BIT) && (now - lastL > DEBOUNCE_US)) {
+  if ((changed & ENC_L_BIT) && (now - lastL > DEBOUNCE_US)) {
     pulsesL++;
     lastL = now;
   }
-  if ((rising & ENC_R_BIT) && (now - lastR > DEBOUNCE_US)) {
+  if ((changed & ENC_R_BIT) && (now - lastR > DEBOUNCE_US)) {
     pulsesR++;
     lastR = now;
   }

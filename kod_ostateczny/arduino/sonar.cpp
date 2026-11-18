@@ -28,6 +28,7 @@ static volatile unsigned long echoStart = 0;
 static volatile unsigned long echoUs = 0;
 static unsigned long trigUs = 0;
 static int trigAngle = 0; // kąt serwa w chwili wyzwolenia pomiaru
+static Pose trigPose = {0, 0, 0}; // poza pojazdu w chwili wyzwolenia pomiaru
 
 void sonarInit() {
   pinMode(TRIG_PIN, OUTPUT);
@@ -44,6 +45,7 @@ void sonarStart() {
   busy = true;
   interrupts();
   trigAngle = servoAngle;
+  trigPose = positionGet();
 
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(TRIG_PULSE_US);
@@ -51,7 +53,7 @@ void sonarStart() {
   trigUs = micros();
 }
 
-bool sonarPoll(unsigned int& mm, int& angle) {
+bool sonarPoll(unsigned int& mm, int& angle, Pose& pose) {
   if (!busy) return false;
 
   if (echoReady) {
@@ -63,6 +65,7 @@ bool sonarPoll(unsigned int& mm, int& angle) {
     mm = (us * 100UL) / ECHO_US_PER_MM_X100;
     if (mm < MIN_VALID_MM || mm > MAX_VALID_MM) mm = 0;
     angle = trigAngle;
+    pose = trigPose;
     return true;
   }
 
@@ -71,6 +74,7 @@ bool sonarPoll(unsigned int& mm, int& angle) {
     busy = false;
     mm = 0;
     angle = trigAngle;
+    pose = trigPose;
     return true;
   }
   return false;

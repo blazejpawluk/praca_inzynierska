@@ -13,6 +13,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "position.h"
 
 // bit pinu ECHO w rejestrze PINC (potrzebny w interrupts.cpp)
 const uint8_t ECHO_BIT = 0b100; // PC2 = A2
@@ -23,8 +24,8 @@ void sonarInit();
 void sonarStart();
 
 // zwraca true, gdy pomiar się zakończył:
-// mm – odległość (0 = brak echa lub poza zakresem), angle – kąt serwa w chwili wyzwolenia pomiaru
-bool sonarPoll(unsigned int& mm, int& angle);
+// mm – odległość (0 = brak echa lub poza zakresem), angle i pose – kąt serwa i poza pojazdu w chwili wyzwolenia pomiaru
+bool sonarPoll(unsigned int& mm, int& angle, Pose& pose);
 
 bool sonarIsBusy();
 

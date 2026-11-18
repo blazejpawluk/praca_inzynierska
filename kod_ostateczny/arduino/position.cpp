@@ -17,7 +17,8 @@ float velocity = 0;
 
 // parametry techniczne
 const uint8_t WHEEL_DIAMETER_MM = 65; // średnica kół [mm]
-const uint8_t PULSES_PER_REV = 20; // liczba szczelin tarczy enkodera
+const uint8_t SLOTS_PER_REV = 20; // liczba szczelin tarczy enkodera
+const uint8_t PULSES_PER_REV = 2 * SLOTS_PER_REV; // liczone są oba zbocza każdej szczeliny
 const float DIST_PER_PULSE_MM = PI * WHEEL_DIAMETER_MM / PULSES_PER_REV; // przejechana odległość na impuls enkodera [mm]
 
 // konfiguracja
@@ -57,6 +58,10 @@ void positionReset() {
   posY = 0;
   heading = 0;
   velocity = 0;
+}
+
+Pose positionGet() {
+  return {posX, posY, heading};
 }
 
 // dodaje próbkę z enkoderów do bufora i zwraca średnią prędkość z ostatnich ENC_WINDOW próbek [mm/s];

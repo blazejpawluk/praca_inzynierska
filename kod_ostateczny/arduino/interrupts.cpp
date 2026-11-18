@@ -29,6 +29,6 @@ ISR(PCINT1_vect) {
   prevState = state;
   unsigned long now = micros();
 
-  encodersISR(changed & state, now);
+  encodersISR(changed, now);
   sonarISR(state, changed, now);
 }
