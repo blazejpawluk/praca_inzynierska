@@ -11,7 +11,7 @@
   Połączenie z komputerem:
     sieć Wi-Fi (tworzona przez ESP32-CAM): SSID: AUTKO, hasło: password, adres: 192.168.4.1
     WebSocket na porcie 80: ws://192.168.4.1:80/
-    serwer HTTP kamery na porcie 81: http://192.168.4.1:81/ (endpointy w camera.h)
+    serwer HTTP na porcie 81: http://192.168.4.1:81/ (strona interfejsu i endpointy kamery w camera.h)
 */
 
 #include <WiFi.h>
@@ -36,7 +36,9 @@ void setup() {
   }
   WiFi.setSleep(false);
 
-  if (cameraInit()) cameraServerStart();
+  // serwer HTTP startuje także bez kamery, aby strona interfejsu była dostępna
+  cameraInit();
+  cameraServerStart();
 
   wsInit();
   arduinoSetConnectionStatus(CONN_WAIT_CLIENT);

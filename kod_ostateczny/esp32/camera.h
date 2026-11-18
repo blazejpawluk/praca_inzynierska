@@ -5,6 +5,7 @@
   Biblioteka obsługująca kamerę OV2640 i serwer HTTP do sterowania nią
 
   Serwer HTTP na porcie 81: http://192.168.4.1:81/
+    - / - strona interfejsu użytkownika (page.h; dostępna także bez działającej kamery)
     - /capture - zdjęcie JPEG robione na żądanie (capture.h)
     - /stream/start, /stream, /stream/stop - transmisja na żywo (stream.h)
   (transmisja jest domyślnie wyłączona z powodu dużego obciążenia zasilania - zdjęcie na żądanie jest lżejsze)
@@ -31,8 +32,7 @@ camera_fb_t* cameraGetFrame();
 // oddaje klatkę pobraną przez cameraGetFrame()
 void cameraReturnFrame(camera_fb_t* fb);
 
-// uruchamia serwer HTTP i rejestruje endpointy z CAMERA_ENDPOINTS (wywoływać po uruchomieniu AccessPoint)
-// zwraca false przy błędzie
+// uruchamia serwer HTTP i rejestruje endpointy z CAMERA_ENDPOINTS
 bool cameraServerStart();
 
 // ustawia nagłówki wspólne dla odpowiedzi wszystkich endpointów (CORS, brak cache)

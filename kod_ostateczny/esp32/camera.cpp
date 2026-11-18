@@ -11,6 +11,7 @@
 #include "camera.h"
 #include "capture.h"
 #include "stream.h"
+#include "page.h"
 
 // konfiguracja kamery
 const framesize_t CAM_FRAME_SIZE = FRAMESIZE_VGA; // rozdzielczość (640x480)
@@ -46,20 +47,23 @@ struct CameraEndpoint {
   const char* uri;
   httpd_method_t method;
   esp_err_t (*handler)(httpd_req_t* req);
+  bool needsCamera; // rejestrowany tylko, gdy kamera działa
 };
 
 // endpointy serwera HTTP
 static const CameraEndpoint CAMERA_ENDPOINTS[] = {
-  {"/capture", HTTP_GET, captureHandler},
-  {"/stream/start", HTTP_GET, streamStartHandler},
-  {"/stream", HTTP_GET, streamHandler},
-  {"/stream/stop", HTTP_GET, streamStopHandler},
+  {"/", HTTP_GET, pageHandler, false},
+  {"/capture", HTTP_GET, captureHandler, true},
+  {"/stream/start", HTTP_GET, streamStartHandler, true},
+  {"/stream", HTTP_GET, streamHandler, true},
+  {"/stream/stop", HTTP_GET, streamStopHandler, true},
 };
 const size_t CAMERA_ENDPOINT_COUNT = sizeof(CAMERA_ENDPOINTS) / sizeof(CAMERA_ENDPOINTS[0]);
 
 // stan zasilania kamery; chroniony przez cameraMutex (klatki pobiera serwer HTTP i zadanie transmisji, usypia loop())
 static SemaphoreHandle_t cameraMutex = NULL;
 static camera_config_t cameraConfig = {};
+static bool cameraReady = false; // cameraInit() zakończone powodzeniem
 static bool cameraAwake = false;
 static uint8_t framesInUse = 0; // liczba pobranych, a jeszcze nieoddanych klatek (oraz trwających pobrań)
 static unsigned long lastFrameMs = 0;
@@ -130,6 +134,7 @@ bool cameraInit() {
   if (esp_camera_init(&cameraConfig) != ESP_OK) return false;
   cameraAwake = true;
   sleepCamera();
+  cameraReady = true;
   return true;
 }
 
@@ -195,6 +200,9 @@ bool cameraServerStart() {
 
   bool ok = true;
   for (size_t i = 0; i < CAMERA_ENDPOINT_COUNT; i++) {
+    // bez kamery (cameraMutex itd.) handlery kamery nie mogą działać - strona nadal jest dostępna
+    if (CAMERA_ENDPOINTS[i].needsCamera && !cameraReady) continue;
+
     httpd_uri_t uri = {}; // pozostałe pola (np. obsługa WebSocketa) wyzerowane
     uri.uri = CAMERA_ENDPOINTS[i].uri;
     uri.method = CAMERA_ENDPOINTS[i].method;
