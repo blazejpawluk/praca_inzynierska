@@ -7,11 +7,10 @@
 
 #include <Arduino.h>
 #include "interrupts.h"
-#include "encoders.h"
 #include "sonar.h"
 
-// bit n rejestrów PINC i PCMSK1 odpowiada pinowi PCn (A0 = PC0 = PCINT8 itd.)
-const uint8_t PCINT1_PINS = ENC_L_BIT | ENC_R_BIT | ECHO_BIT;
+// bit n rejestrów PINC i PCMSK1 odpowiada pinowi PCn (A2 = PC2 = PCINT10)
+const uint8_t PCINT1_PINS = ECHO_BIT;
 
 static uint8_t prevState = 0; // stan pinów przy poprzednim przerwaniu
 
@@ -27,8 +26,6 @@ ISR(PCINT1_vect) {
   uint8_t state = PINC & PCINT1_PINS;
   uint8_t changed = state ^ prevState;
   prevState = state;
-  unsigned long now = micros();
 
-  encodersISR(changed, now);
-  sonarISR(state, changed, now);
+  sonarISR(state, changed, micros());
 }
