@@ -294,12 +294,25 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       .big-stat i{font-style:normal;font-size:11px;color:var(--dim);margin-left:4px}
 
       /* --- tryb mapowania --- */
-      #mode-map{grid-template-columns:1fr}
-      .map-empty{border:1px dashed var(--line-2);border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;
-        background-image:linear-gradient(rgba(180,255,31,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(180,255,31,.05) 1px,transparent 1px);background-size:28px 28px}
-      .map-empty .ico{font-size:42px;color:var(--lime);text-shadow:0 0 22px var(--lime);line-height:1}
-      .map-empty b{letter-spacing:.2em;font-size:13px}
-      .map-empty span{color:var(--muted);font-size:12px}
+      #mode-map{grid-template-columns:minmax(0,1fr) 250px;grid-template-rows:minmax(0,1fr)}
+      #mode-map .card-h{color:var(--lime)}
+      .map-wrap{background:var(--bg)}
+      #map{cursor:grab;touch-action:none}
+      #map.drag{cursor:grabbing}
+      .map-legend{background:rgba(6,7,11,.82);border-radius:5px;padding:5px 8px}
+      .map-legend span::before{border-radius:1px;box-shadow:none;outline:1px solid var(--dim)}
+      .map-view{display:grid;grid-template-columns:auto auto 1fr 1fr;gap:6px;flex-shrink:0}
+      .map-view .btn,.map-btns .btn{--c:var(--lime)}
+      #map-follow.on{color:var(--lime);border-color:var(--lime)}
+      #map-run{--c:var(--lime)}
+      #map-run.on{--c:var(--red)}
+      .map-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+      .map-l{display:grid;grid-template-columns:minmax(0,1fr) 66px;gap:8px;align-items:center}
+      .map-l input[type=range]{--c:var(--lime)}
+      .map-l input[type=number]{width:100%;padding:4px 6px}
+      .map-l input[type=number]:focus{border-color:var(--lime);box-shadow:0 0 0 2px rgba(180,255,31,.15)}
+      .map-msg{font-size:10px;line-height:1.4;color:var(--muted)}
+      .map-msg.err{color:var(--red)}
 
       /* ===== KAMERA ===== */
       .cam-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.6fr) minmax(180px,1fr);gap:10px;padding:10px}
@@ -335,7 +348,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         .main{min-height:720px}.cam{height:340px}.debug{height:520px}
         #mode-control{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:none;grid-template-areas:"pad pad" "speed servo" "fb fb"}
         .vsl-wrap{min-height:190px}
-        #mode-radar{grid-template-columns:minmax(0,1fr);grid-template-rows:420px auto}
+        #mode-radar,#mode-map{grid-template-columns:minmax(0,1fr);grid-template-rows:420px auto}
         .fb{display:flex;flex-wrap:wrap;justify-content:center}
         .fb .metric{flex:0 0 calc((100% - 16px) / 3)}
         .main-head{flex-wrap:wrap}
@@ -368,8 +381,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         .hint{display:none}
 
         /* radar */
-        #mode-radar{grid-template-rows:auto auto}
+        #mode-radar,#mode-map{grid-template-rows:auto auto}
         .radar-main .radar-wrap{flex:none;height:auto;aspect-ratio:1.4}
+        .map-main .radar-wrap{aspect-ratio:1}
+        .map-view{grid-template-columns:1fr 1fr}
         .radar-legend{left:8px;top:6px;font-size:9px;gap:3px 8px;letter-spacing:.04em}
         #radar-clear{padding:11px}
 
@@ -620,10 +635,108 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
 
           <!-- ---------- TRYB: MAPOWANIE ---------- -->
           <section class="mode" id="mode-map">
-            <div class="map-empty">
-              <div class="ico">⌗</div>
-              <b>MAPOWANIE POMIESZCZENIA</b>
-              <span>Moduł w przygotowaniu — tu pojawi się mapa 2D pomieszczenia.</span>
+            <div class="radar-main map-main">
+              <div class="card radar-wrap map-wrap" id="map-wrap">
+                <canvas id="map"></canvas>
+                <div class="radar-legend map-legend">
+                  <span style="--c:#fff">wolna</span>
+                  <span style="--c:#808080">nieznana</span>
+                  <span style="--c:#000">zajęta</span>
+                  <span style="--c:var(--magenta)">pojazd</span>
+                </div>
+              </div>
+              <div class="map-view">
+                <button class="btn sm" id="map-zoom-out" title="Oddal" aria-label="Oddal">−</button>
+                <button class="btn sm" id="map-zoom-in" title="Przybliż" aria-label="Przybliż">+</button>
+                <button class="btn sm" id="map-fit">Cała mapa</button>
+                <button class="btn sm" id="map-follow">Śledź pojazd</button>
+              </div>
+            </div>
+            <div class="radar-side">
+              <div class="card">
+                <div class="card-h">Mapowanie</div>
+                <button class="btn solid" id="map-run">▶ Start mapowania</button>
+                <div class="map-btns">
+                  <button class="btn sm" id="map-clear">Wyczyść</button>
+                  <button class="btn sm" id="map-save">Zapisz PNG</button>
+                </div>
+                <div class="map-msg" id="map-status" role="status">Wykrywanie ściany: gotowe do startu.</div>
+              </div>
+              <div class="card">
+                <div class="card-h">Prędkości</div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>Jazda</span><b>PWM</b></div>
+                  <div class="map-l">
+                    <input type="range" data-speed="drive" step="1" aria-label="Prędkość jazdy">
+                    <input type="number" data-speed="drive" step="1" aria-label="Prędkość jazdy">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>Obrót</span><b>PWM</b></div>
+                  <div class="map-l">
+                    <input type="range" data-speed="turn" step="1" aria-label="Prędkość obrotu">
+                    <input type="number" data-speed="turn" step="1" aria-label="Prędkość obrotu">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>Obrót dokładny</span><b>PWM</b></div>
+                  <div class="map-l">
+                    <input type="range" data-speed="turnSlow" step="1" aria-label="Prędkość obrotu dokładnego">
+                    <input type="number" data-speed="turnSlow" step="1" aria-label="Prędkość obrotu dokładnego">
+                  </div>
+                </div>
+                <button class="btn sm" id="map-speed-default" style="--c:var(--lime)">Wartości domyślne</button>
+              </div>
+              <div class="card">
+                <div class="card-h">Parametry l</div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>l<sub>occ</sub> · zajęta</span><b data-p="lOcc"></b></div>
+                  <div class="map-l">
+                    <input type="range" data-l="lOcc" min="0.05" max="3" step="0.05" aria-label="l occ">
+                    <input type="number" data-l="lOcc" min="0.05" max="3" step="0.05" aria-label="l occ">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>l<sub>free</sub> · wolna</span><b data-p="lFree"></b></div>
+                  <div class="map-l">
+                    <input type="range" data-l="lFree" min="-3" max="-0.05" step="0.05" aria-label="l free">
+                    <input type="number" data-l="lFree" min="-3" max="-0.05" step="0.05" aria-label="l free">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>l<sub>0</sub> · początkowa</span><b data-p="l0"></b></div>
+                  <div class="map-l">
+                    <input type="range" data-l="l0" min="-1" max="1" step="0.05" aria-label="l 0">
+                    <input type="number" data-l="l0" min="-1" max="1" step="0.05" aria-label="l 0">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>l<sub>min</sub> · dolna granica</span><b data-p="lMin"></b></div>
+                  <div class="map-l">
+                    <input type="range" data-l="lMin" min="-6.35" max="-0.05" step="0.05" aria-label="l min">
+                    <input type="number" data-l="lMin" min="-6.35" max="-0.05" step="0.05" aria-label="l min">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>l<sub>max</sub> · górna granica</span><b data-p="lMax"></b></div>
+                  <div class="map-l">
+                    <input type="range" data-l="lMax" min="0.05" max="6.35" step="0.05" aria-label="l max">
+                    <input type="number" data-l="lMax" min="0.05" max="6.35" step="0.05" aria-label="l max">
+                  </div>
+                </div>
+                <div class="map-msg" id="map-l-msg" role="status"></div>
+                <button class="btn sm" id="map-l-default" style="--c:var(--lime)">Wartości domyślne</button>
+              </div>
+              <div class="card">
+                <div class="card-h">Odczyt</div>
+                <div>
+                  <div class="kv"><span class="k">Siatka</span><span class="v" id="map-size"></span></div>
+                  <div class="kv"><span class="k">Pamięć</span><span class="v" id="map-mem"></span></div>
+                  <div class="kv"><span class="k">Komórka (i, j)</span><span class="v" id="map-cell">—</span></div>
+                  <div class="kv"><span class="k">Punkt (x, y)</span><span class="v" id="map-xy">—</span></div>
+                  <div class="kv"><span class="k">l · p</span><span class="v" id="map-lp">—</span></div>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -720,12 +833,22 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       const PULSE_MS = 500; // czas animacji znacznika ramki
       const NO_ECHO = '-';
       const BEAM_DEG= 15;
+      const MAP_SIZE_CM = 800; // bok kwadratowej mapy; punkt (0, 0) leży na jej środku
+      const MAP_CELL_CM = 3.4; // bok komórki, zbliżony do rozdzielczości odległościowej sonaru
+      const MAP_L_STEP = 0.05; // wartość l odpowiadająca jednostce zapisanej w bajcie komórki
+      const MAP_L_RAW_MAX = 127; // największy moduł zapisanej wartości (l = +/-6,35)
+      const MAP_L_DEFAULT = { lOcc: 0.85, lFree: -0.4, l0: 0, lMin: -2, lMax: 3.5 };
+      const MAP_ZOOM_MIN = 0.2; // px/cm
+      const MAP_ZOOM_MAX = 12;
+      const MAP_ZOOM_STEP = 1.25;
+      const MAP_PNG_SCALE = 4; // liczba pikseli PNG na bok komórki
 
       // symbole wyświetlane na stronie, zapisane kodami (takie same jak w HTML)
       const NO_DATA = '\u2014'; // pole bez wartości
       const DEG = '\u00b0';
       const PLUS_MINUS = '\u00b1';
       const DOT = '\u00b7';
+      const TIMES = '\u00d7';
       const NBSP = '\u00a0';
       const ICON_START = '\u25b6';
       const ICON_STOP = '\u25a0';
@@ -739,6 +862,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       const p2 = n => String(n).padStart(2, '0');
       const hms = (d = new Date()) => d.toLocaleTimeString('pl-PL', { hour12: false });
       const hmsms = (d = new Date()) => hms(d) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+      const stamp = d => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
 
       // WIDOK: STATUS POŁĄCZENIA
       const CONN = {
@@ -1106,6 +1230,340 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       rTo.addEventListener('input', paintDual);
       paintDual();
 
+      // DANE: SIATKA ZAJĘTOŚCI
+      // Komórka m(i, j) zajmuje jeden bajt ze znakiem: l(i, j) / MAP_L_STEP, gdzie l = ln(p / (1 - p)).
+      // i rośnie wraz z x, j rośnie wraz z y; współrzędne świata w cm, jak w telemetrii.
+      const mapSnap = l => +(Math.round(l / MAP_L_STEP) * MAP_L_STEP).toFixed(2);
+      const mapProb = l => 1 - 1 / (1 + Math.exp(l));
+
+      function mapRawParams(p) {
+        const raw = {};
+        for (const k in MAP_L_DEFAULT) raw[k] = Math.round(p[k] / MAP_L_STEP);
+        return raw;
+      }
+
+      // zwraca opis błędu albo pusty tekst, jeśli parametry są poprawne
+      function mapParamsError(p) {
+        if (Object.keys(MAP_L_DEFAULT).some(k => !Number.isFinite(p[k]))) return 'Uzupełnij wszystkie parametry.';
+        const r = mapRawParams(p);
+        if (Object.values(r).some(v => Math.abs(v) > MAP_L_RAW_MAX)) return `Wartości l muszą mieścić się w ${PLUS_MINUS}${(MAP_L_RAW_MAX * MAP_L_STEP).toFixed(2)}.`;
+        if (r.lOcc <= 0 || r.lFree >= 0) return 'Wymagane: l occ > 0 oraz l free < 0.';
+        if (r.lFree >= r.l0 || r.l0 >= r.lOcc) return 'Wymagane: l free < l 0 < l occ.';
+        if (r.lMin >= r.l0 || r.l0 >= r.lMax) return 'Wymagane: l min < l 0 < l max.';
+        return '';
+      }
+
+      const occGrid = {
+        cols: Math.ceil(MAP_SIZE_CM / MAP_CELL_CM),
+        rows: Math.ceil(MAP_SIZE_CM / MAP_CELL_CM),
+        cell: MAP_CELL_CM,
+        originX: 0, originY: 0, // róg komórki (0, 0)
+        cells: null, // Int8Array, wiersze od j = 0
+        params: null, raw: null, // parametry l oraz te same wartości w jednostkach bajtu
+        dirty: null, // prostokąt komórek do przerysowania
+        updates: 0, // liczba zmian komórek od wyczyszczenia mapy
+
+        init(params) {
+          this.originX = -this.cols * this.cell / 2;
+          this.originY = -this.rows * this.cell / 2;
+          this.cells = new Int8Array(this.cols * this.rows);
+          this.setRawParams(params);
+          this.clear();
+        },
+
+        setRawParams(p) {
+          this.raw = mapRawParams(p);
+          this.params = {};
+          for (const k in this.raw) this.params[k] = mapSnap(p[k]);
+        },
+
+        inBounds(i, j) { return i >= 0 && j >= 0 && i < this.cols && j < this.rows; },
+        index(i, j) { return j * this.cols + i; },
+
+        // przeliczenia świat <-> komórka; wynik colOf/rowOf może leżeć poza mapą (sprawdza inBounds)
+        colOf(x) { return Math.floor((x - this.originX) / this.cell); },
+        rowOf(y) { return Math.floor((y - this.originY) / this.cell); },
+        cellX(i) { return this.originX + (i + .5) * this.cell; },
+        cellY(j) { return this.originY + (j + .5) * this.cell; },
+
+        // odczyt; komórka spoza mapy jest nieznana
+        logOdds(i, j) {
+          return this.inBounds(i, j) ? mapSnap(this.cells[this.index(i, j)] * MAP_L_STEP) : this.params.l0;
+        },
+        probability(i, j) { return mapProb(this.logOdds(i, j)); },
+
+        // aktualizacja komórki: l = l + l_pom - l_0, ograniczone do [l_min, l_max]
+        update(i, j, lPomRaw) {
+          if (!this.inBounds(i, j)) return;
+          const k = this.index(i, j), { l0, lMin, lMax } = this.raw;
+          const v = clamp(this.cells[k] + lPomRaw - l0, lMin, lMax);
+          if (v === this.cells[k]) return;
+          this.cells[k] = v;
+          this.updates++;
+          this.markDirty(i, j, i, j);
+        },
+        markOccupied(i, j) { this.update(i, j, this.raw.lOcc); },
+        markFree(i, j) { this.update(i, j, this.raw.lFree); },
+
+        // Zmiana l_0 zachowuje zebrane pomiary (przesuwa wszystkie komórki), a zmiana granic
+        // od razu obowiązuje też dla zapisanych komórek. l_occ i l_free działają na kolejne pomiary.
+        setParams(p) {
+          if (mapParamsError(p)) return false;
+          const old = this.raw;
+          this.setRawParams(p);
+          const { l0, lMin, lMax } = this.raw, shift = l0 - old.l0;
+          if (shift || lMin !== old.lMin || lMax !== old.lMax) {
+            const c = this.cells;
+            for (let k = 0; k < c.length; k++) c[k] = clamp(c[k] + shift, lMin, lMax);
+            this.markDirty(0, 0, this.cols - 1, this.rows - 1);
+          }
+          return true;
+        },
+
+        clear() {
+          this.cells.fill(this.raw.l0);
+          this.updates = 0;
+          this.markDirty(0, 0, this.cols - 1, this.rows - 1);
+        },
+
+        markDirty(i0, j0, i1, j1) {
+          const d = this.dirty;
+          this.dirty = d
+            ? { i0: Math.min(d.i0, i0), j0: Math.min(d.j0, j0), i1: Math.max(d.i1, i1), j1: Math.max(d.j1, j1) }
+            : { i0, j0, i1, j1 };
+        },
+
+        takeDirty() {
+          const d = this.dirty;
+          this.dirty = null;
+          return d;
+        },
+      };
+      occGrid.init(MAP_L_DEFAULT);
+
+      // WIDOK: MAPA - odcień komórki wynika z p: 1 = czarna, 0,5 = szara, 0 = biała
+      const MAP_GRAY = Uint8ClampedArray.from({ length: 256 }, (_, b) => 255 * (1 - mapProb((b - 128) * MAP_L_STEP)));
+
+      const mapView = {
+        cv: $('#map'), ctx: $('#map').getContext('2d'),
+        off: document.createElement('canvas'), // obraz siatki: jeden piksel na komórkę
+        img: new ImageData(occGrid.cols, occGrid.rows),
+        w: 0, h: 0, zoom: 1, vx: 0, vy: 0, // zoom [px/cm], (vx, vy) = punkt na środku widoku
+        fitted: false, follow: false, stale: true,
+        pose: null, hover: null,
+        marks: [], // wykryte granice ściany { x, y } [cm]
+
+        sx(x) { return this.w / 2 + (x - this.vx) * this.zoom; },
+        sy(y) { return this.h / 2 - (y - this.vy) * this.zoom; },
+        wx(px) { return this.vx + (px - this.w / 2) / this.zoom; },
+        wy(py) { return this.vy - (py - this.h / 2) / this.zoom; },
+
+        resize() {
+          const r = this.cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+          this.w = r.width;
+          this.h = r.height;
+          this.cv.width = r.width * dpr;
+          this.cv.height = r.height * dpr;
+          this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          this.stale = true;
+          if (!this.fitted && this.w && this.h) this.fit();
+        },
+
+        fit() {
+          this.fitted = true;
+          this.setFollow(false);
+          this.zoom = clamp(Math.min(this.w, this.h) / (occGrid.cols * occGrid.cell), MAP_ZOOM_MIN, MAP_ZOOM_MAX);
+          this.moveTo(0, 0);
+        },
+
+        moveTo(x, y) {
+          const half = occGrid.cols * occGrid.cell / 2;
+          this.vx = clamp(x, -half, half);
+          this.vy = clamp(y, -half, half);
+          this.stale = true;
+        },
+
+        // przybliża tak, aby punkt pod (px, py) pozostał w miejscu
+        zoomBy(f, px = this.w / 2, py = this.h / 2) {
+          const x = this.wx(px), y = this.wy(py);
+          this.zoom = clamp(this.zoom * f, MAP_ZOOM_MIN, MAP_ZOOM_MAX);
+          if (this.follow) this.stale = true;
+          else this.moveTo(x - (px - this.w / 2) / this.zoom, y + (py - this.h / 2) / this.zoom);
+        },
+
+        setFollow(on) {
+          this.follow = on;
+          $('#map-follow').classList.toggle('on', on);
+          if (on && this.pose) this.moveTo(this.pose.x, this.pose.y);
+        },
+
+        setPose(p) {
+          this.pose = p;
+          this.stale = true;
+          if (this.follow) this.moveTo(p.x, p.y);
+        },
+
+        setMarks(marks) {
+          this.marks = marks;
+          this.stale = true;
+        },
+
+        // przepisuje zmienione komórki do obrazu siatki (wiersz j = 0 na dole)
+        syncImage() {
+          const d = occGrid.takeDirty();
+          if (!d) return;
+          const { cols, rows, cells } = occGrid, px = this.img.data;
+          for (let j = d.j0; j <= d.j1; j++) {
+            for (let i = d.i0; i <= d.i1; i++) {
+              const g = MAP_GRAY[cells[occGrid.index(i, j)] + 128], o = ((rows - 1 - j) * cols + i) * 4;
+              px[o] = px[o + 1] = px[o + 2] = g;
+              px[o + 3] = 255;
+            }
+          }
+          this.off.getContext('2d').putImageData(this.img, 0, 0, d.i0, rows - 1 - d.j1, d.i1 - d.i0 + 1, d.j1 - d.j0 + 1);
+          this.stale = true;
+          this.showHover();
+        },
+
+        // linie siatki co step, zaczepione w punkcie base, tylko w widocznej części mapy
+        gridLines(baseX, baseY, step, style) {
+          const { ctx: c, w, h } = this, { originX, originY, cols, rows, cell } = occGrid;
+          const x0 = Math.max(originX, this.wx(0)), x1 = Math.min(originX + cols * cell, this.wx(w));
+          const y0 = Math.max(originY, this.wy(h)), y1 = Math.min(originY + rows * cell, this.wy(0));
+          c.strokeStyle = style;
+          c.beginPath();
+          for (let n = Math.ceil((x0 - baseX) / step); baseX + n * step <= x1; n++) {
+            const s = Math.round(this.sx(baseX + n * step)) + .5;
+            c.moveTo(s, this.sy(y0));
+            c.lineTo(s, this.sy(y1));
+          }
+          for (let n = Math.ceil((y0 - baseY) / step); baseY + n * step <= y1; n++) {
+            const s = Math.round(this.sy(baseY + n * step)) + .5;
+            c.moveTo(this.sx(x0), s);
+            c.lineTo(this.sx(x1), s);
+          }
+          c.stroke();
+        },
+
+        draw() {
+          this.syncImage();
+          const { ctx: c, w, h, zoom } = this;
+          if (!this.stale || !w || !h) return;
+          this.stale = false;
+          const { originX, originY, cols, rows, cell } = occGrid;
+          c.fillStyle = '#06070b';
+          c.fillRect(0, 0, w, h);
+          c.imageSmoothingEnabled = false;
+          c.drawImage(this.off, this.sx(originX), this.sy(originY + rows * cell), cols * cell * zoom, rows * cell * zoom);
+
+          // siatka: komórki (po przybliżeniu) i podziałka metrowa
+          c.lineWidth = 1;
+          if (cell * zoom >= 10) this.gridLines(originX, originY, cell, 'rgba(0,0,0,.14)');
+          const step = zoom * 100 >= 40 ? 100 : 200;
+          this.gridLines(0, 0, step, 'rgba(0,150,180,.42)');
+          c.strokeStyle = '#00a9c7';
+          c.lineWidth = 1.5;
+          c.beginPath();
+          c.moveTo(this.sx(-8 / zoom), this.sy(0));
+          c.lineTo(this.sx(8 / zoom), this.sy(0));
+          c.moveTo(this.sx(0), this.sy(-8 / zoom));
+          c.lineTo(this.sx(0), this.sy(8 / zoom));
+          c.stroke();
+          c.strokeStyle = '#3b4458';
+          c.strokeRect(this.sx(originX), this.sy(originY + rows * cell), cols * cell * zoom, rows * cell * zoom);
+
+          // opisy podziałki przy krawędziach widoku
+          c.font = `10px ${MONO}`;
+          c.fillStyle = '#007f96';
+          c.textAlign = 'center';
+          for (let x = Math.ceil(Math.max(originX, this.wx(0)) / step) * step; x <= Math.min(-originX, this.wx(w)); x += step) {
+            if (this.sx(x) > 40 && this.sx(x) < w - 20) c.fillText(x / 100 + ' m', this.sx(x), h - 6);
+          }
+          c.textAlign = 'left';
+          for (let y = Math.ceil(Math.max(originY, this.wy(h)) / step) * step; y <= Math.min(-originY, this.wy(0)); y += step) {
+            if (this.sy(y) < h - 18) c.fillText(y / 100 + ' m', 5, this.sy(y) - 3);
+          }
+
+          // granice ściany
+          c.fillStyle = '#b4ff1f';
+          c.strokeStyle = '#06070b';
+          c.lineWidth = 1.5;
+          for (const m of this.marks) {
+            c.beginPath();
+            c.arc(this.sx(m.x), this.sy(m.y), 6, 0, Math.PI * 2);
+            c.fill();
+            c.stroke();
+          }
+
+          // pojazd: wierzchołek trójkąta wskazuje kierunek jazdy (theta = 0 wzdłuż osi x)
+          if (this.pose) {
+            c.save();
+            c.translate(this.sx(this.pose.x), this.sy(this.pose.y));
+            c.rotate(-rad(this.pose.theta));
+            c.fillStyle = '#ff2e97';
+            c.strokeStyle = '#06070b';
+            c.lineWidth = 1.5;
+            c.beginPath();
+            c.moveTo(13, 0);
+            c.lineTo(-7, 8);
+            c.lineTo(-7, -8);
+            c.closePath();
+            c.fill();
+            c.stroke();
+            c.restore();
+          }
+        },
+
+        setHover(px, py) {
+          this.hover = px == null ? null : { x: this.wx(px), y: this.wy(py) };
+          this.showHover();
+        },
+
+        showHover() {
+          const p = this.hover, i = p ? occGrid.colOf(p.x) : -1, j = p ? occGrid.rowOf(p.y) : -1;
+          const known = occGrid.inBounds(i, j);
+          $('#map-cell').textContent = known ? `${i}, ${j}` : NO_DATA;
+          $('#map-xy').textContent = known ? `${p.x.toFixed(0)}, ${p.y.toFixed(0)} cm` : NO_DATA;
+          $('#map-lp').textContent = known ? `${occGrid.logOdds(i, j).toFixed(2)} ${DOT} ${occGrid.probability(i, j).toFixed(2)}` : NO_DATA;
+        },
+      };
+      mapView.off.width = occGrid.cols;
+      mapView.off.height = occGrid.rows;
+      $('#map-size').textContent = `${occGrid.cols} ${TIMES} ${occGrid.rows} ${DOT} ${occGrid.cell} cm`;
+      $('#map-mem').textContent = `${(occGrid.cells.length / 1024).toFixed(1)} kB`;
+      new ResizeObserver(() => {
+        if (mode === 'map') mapView.resize();
+      }).observe($('#map-wrap'));
+
+      // pętla animacji mapy, uruchamiana w sekcji START; rysuje tylko po zmianach
+      function mapLoop() {
+        if (mode === 'map') mapView.draw();
+        requestAnimationFrame(mapLoop);
+      }
+
+      function showMapRun(on) {
+        const b = $('#map-run');
+        b.classList.toggle('on', on);
+        b.textContent = on ? `${ICON_STOP} Stop mapowania` : `${ICON_START} Start mapowania`;
+      }
+
+      // pola parametrów l; skip = pole właśnie edytowane przez użytkownika
+      function showMapParams(p, skip) {
+        for (const k in MAP_L_DEFAULT) {
+          const ok = Number.isFinite(p[k]);
+          $(`[data-p=${k}]`).textContent = ok ? `p = ${mapProb(p[k]).toFixed(2)}` : NO_DATA;
+          if (!ok) continue;
+          for (const el of $$(`[data-l=${k}]`)) {
+            if (el === skip) continue;
+            el.value = el.type === 'number' ? p[k].toFixed(2) : p[k];
+            if (el.type === 'range') paintRange(el);
+          }
+        }
+        const err = mapParamsError(p), msg = $('#map-l-msg');
+        msg.classList.toggle('err', !!err);
+        msg.textContent = err ? err + ' Mapa używa ostatnich poprawnych wartości.' : 'l occ i l free działają na kolejne pomiary; l 0 i granice także na zapisane komórki.';
+      }
+
       // WIDOK: LCD (jedna linia)
       const lcdRow = $('#lcd-row'), lcdIn = $('#lcd-text');
       $('#lcd-size').textContent = `${LCD_COLS} znaków`;
@@ -1148,7 +1606,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         $('#shot').classList.add('has');
         const dl = $('#snap-dl');
         dl.href = url;
-        dl.download = `zdjecie_${date.getFullYear()}${p2(date.getMonth() + 1)}${p2(date.getDate())}_${p2(date.getHours())}${p2(date.getMinutes())}${p2(date.getSeconds())}.jpg`;
+        dl.download = `zdjecie_${stamp(date)}.jpg`;
         dl.classList.remove('disabled');
       }
 
@@ -1189,6 +1647,14 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             showReading(d.servo, d.sonar);
           }
         }
+
+        if (d.x != null) MapControl.pose({ x: d.x, y: d.y, theta: d.theta });
+        if (d.sonarX != null) {
+          MapControl.measurement({
+            servo: d.servo, dist: typeof d.sonar === 'number' ? d.sonar : null,
+            x: d.sonarX, y: d.sonarY, theta: d.sonarTheta,
+          });
+        }
       }
 
       // LOGIKA: TRANSPORT - WebSocket do ESP32-CAM
@@ -1215,6 +1681,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             setConnection('offline', {uart: NO_DATA});
             held.length = 0;
             if (activeDir !== 'S') setDrive('S');
+            MapControl.setRunning(false, 'connection');
             setTimeout(() => this.connect(), WS_RETRY_MS);
           };
         },
@@ -1229,6 +1696,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         },
 
         calibrate() {
+          MapControl.setRunning(false, 'calibration');
           held.length = 0;
           drive('S'); // inaczej powtarzanie W:MOTOR wznowiłoby jazdę po kalibracji
           this.send('W:CALIBRATE');
@@ -1288,6 +1756,8 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           setScan(false);
           Transport.send('W:RADAROFF');
         }
+        if (m === 'map') mapView.resize();
+        else MapControl.setRunning(false, 'tab');
       }
       $$('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
 
@@ -1400,6 +1870,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         if (document.hidden) {
           held.length = 0;
           drive('S');
+          MapControl.setRunning(false, 'hidden');
         }
       });
       setInterval(() => {
@@ -1465,7 +1936,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       };
 
       // LOGIKA: ODOMETRIA
-      $('#odo-reset').onclick = () => Transport.send('W:RESETPOS');
+      $('#odo-reset').onclick = () => {
+        Transport.send('W:RESETPOS');
+        MapHandlers.onPoseReset();
+      };
       $('#odo-calib').onclick = () => Transport.calibrate();
 
       // LOGIKA: KAMERA
@@ -1521,6 +1995,789 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         btn.disabled = false;
       };
 
+      // LOGIKA: WYKRYWANIE ŚCIANY
+      // Pojazd dojeżdża do przeszkody, ustawia się prostopadle do ściany (środek łuku pomiarów),
+      // a potem przesuwa się wzdłuż niej w prawo. Na końcu ściany przechodzi do następnej i tak
+      // obchodzi kolejne ściany, aż wykona pełny obieg i wróci w pobliże miejsca startu.
+      // Używa tylko W:MOTOR, W:SERVO, W:RADAR i W:RADAROFF; obroty i odległości kontroluje na podstawie A:POS.
+      const WALL = {
+        STOP_CM: 50, // odległość od przeszkody kończąca dojazd
+        STEP_CM: 20, // długość kroku wzdłuż ściany
+        BLOCK_CM: 20, // przeszkoda przerywająca krok
+        SEARCH_MAX_CM: 400, // najdłuższy dojazd do przeszkody
+        MAX_WALLS: 16, // limit bezpieczeństwa: liczba ścian
+        MAX_PATH_CM: 4000, // limit bezpieczeństwa: droga wzdłuż ścian
+        CLOSE_TURN_DEG: 330, // suma obrotów oznaczająca pełny obieg
+        CLOSE_MAX_TURN_DEG: 450, // po takiej sumie obrotów obieg kończy się także bez trafienia w start
+        CLOSE_CM: 60, // odległość od startu kończąca obieg
+        SEARCH_TURN_DEG: 120, // obrót przy szukaniu ściany poza zakresem skanu
+        CORNER_PAST_CM: 30, // o ile minąć linię kończącej się ściany przy narożniku wypukłym
+        WALL_ARC_MIN_DEG: 20, // węższy łuk to zwykle tylko krawędź ściany (szerokość wiązki)
+        REALIGN_STEPS: 4, // co tyle kroków auto ponownie ustawia się do ściany (usuwa dryf kąta)
+        BRAKE_CM: 2, // zapas na wybieg po wyłączeniu silników
+        DRIVE_LAG_S: 0.2, // opóźnienie pozy i wybieg uwzględniane przy hamowaniu
+        DIST_TOL_CM: 3, // dokładność ustawienia odległości od ściany
+        DIST_TRIES: 4,
+        FRONT_PINGS: 5, // liczba pomiarów przy sprawdzaniu odległości na postoju
+        MAX_RANGE_CM: 200, // dalszych pomiarów nie używamy (rozdz. 4.2.3)
+        SENSOR_OFFSET_CM: 15, // odległość a sonaru od osi pojazdu (równ. 3.4) - do zmierzenia
+        SERVO_TRIM_DEG: 0, // o ile rzeczywisty kierunek sonaru przy 90 st. odbiega od osi pojazdu (+ = w lewo)
+
+        SCAN_STEP: 5, // krok skanu zgrubnego [st.]
+        FINE_STEP: 2, // krok skanu dokładnego [st.]
+        FINE_SWEEPS: 2, // przejścia w obie strony znoszą wpływ luzu serwa
+        FINE_MARGIN_DEG: 15, // zapas skanu dokładnego poza krawędziami łuku
+        SCAN_INTERVAL_MS: 150,
+        SWEEP_MS: 600, // dojazd serwa na początek skanu
+        SERVO_MS: 350, // ustawienie serwa na wprost
+        SETTLE_MS: 400, // uspokojenie pojazdu po zatrzymaniu
+
+        ARC_TOL_CM: 5, // największa różnica sąsiednich pomiarów łuku
+        ARC_MAX_JUMP_DEG: 10, // największy odstęp sąsiednich pomiarów łuku
+        ARC_MIN_POINTS: 3,
+        ARC_MIN_SPAN_DEG: 10,
+        ARC_MAX_TURNS: 4, // najwięcej obrotów przy szukaniu granic łuku
+        ALIGN_TOL_DEG: 2, // dopuszczalna korekta w ostatnim skanie dokładnym
+        ALIGN_TRIES: 4,
+        SAME_TOL_CM: 8, // „mniej więcej taka sama” odległość od ściany
+
+        TURN_SLOW_DEG: 25, // poniżej tego błędu obrót zwalnia
+        TURN_TOL_DEG: 1,
+        TURN_PULSE_DEG: 12, // poniżej tego błędu obrót odbywa się impulsami
+        TURN_LAG_S: 0.2, // opóźnienie pozy i wybieg uwzględniane przy hamowaniu
+        TURN_TRIES: 12,
+        PULSE_MS_PER_DEG: 15, // początkowy czas impulsu na stopień (dalej dobierany automatycznie)
+        PULSE_MIN_MS: 40,
+        PULSE_MAX_MS: 400,
+        PWM_BOOST: 20, // zwiększenie PWM, gdy pojazd nie rusza
+        STALL_MS: 1200,
+        STEER_GAIN: 3, // korekta PWM na stopień błędu kursu podczas jazdy
+        STEER_MAX: 40,
+        KEEPALIVE_MS: 250, // powtarzanie W:MOTOR (Arduino zatrzymuje silniki po 1 s bez komend)
+        DATA_TIMEOUT_MS: 2000,
+      };
+      const WALL_SPEED_DEFAULT = { drive: 220, turn: 220, turnSlow: 200 }; // [PWM]
+      const wallSpeeds = { ...WALL_SPEED_DEFAULT }; // ustawiane na stronie, działają od razu
+      const WALL_ABORT = new Error('przerwano');
+      const WALL_LOST = new Error('nie wykryto łuku');
+      const angDiff = (a, b) => ((a - b + 540) % 360 + 360) % 360 - 180; // a - b w zakresie [-180, 180)
+      const median = v => [...v].sort((a, b) => a - b)[v.length >> 1];
+      const usableDist = d => d != null && d <= WALL.MAX_RANGE_CM;
+      const mean = v => v.reduce((a, b) => a + b, 0) / v.length;
+      const sonarBearing = m => m.theta + m.servo - 90 + WALL.SERVO_TRIM_DEG; // kierunek wiązki na mapie
+
+      // nanosi pomiar na siatkę (rozdz. 3.8): komórki stożka przed łukiem są wolne, a na łuku zajęte
+      function mapAddMeasurement(m) {
+        if (!usableDist(m.dist)) return;
+        const g = occGrid, half = g.cell / 2, r = m.dist + half, beam = sonarBearing(m);
+        const sx = m.x + WALL.SENSOR_OFFSET_CM * Math.cos(rad(m.theta));
+        const sy = m.y + WALL.SENSOR_OFFSET_CM * Math.sin(rad(m.theta));
+        for (let j = g.rowOf(sy - r); j <= g.rowOf(sy + r); j++) {
+          for (let i = g.colOf(sx - r); i <= g.colOf(sx + r); i++) {
+            const dx = g.cellX(i) - sx, dy = g.cellY(j) - sy, rho = Math.hypot(dx, dy);
+            if (rho > r || Math.abs(angDiff(Math.atan2(dy, dx) * 180 / Math.PI, beam)) > BEAM_DEG / 2) continue;
+            if (rho < m.dist - half) g.markFree(i, j);
+            else g.markOccupied(i, j);
+          }
+        }
+      }
+
+      // pomiary jako mapa: numer kierunku (co step st. względem reference) -> odległość lub null
+      function wallBins(pts, reference, step, bins = new Map()) {
+        for (const m of pts) bins.set(Math.round(angDiff(sonarBearing(m), reference) / step), m.dist);
+        return bins;
+      }
+
+      // łuki: ciągi sąsiednich kierunków o zbliżonej odległości; środek to średni kierunek
+      // pomiarów zgodnych z medianą łuku, więc pojedyncze błędy na krawędziach go nie przesuwają
+      function wallFindArcs(bins, step) {
+        const keys = [...bins.keys()].sort((a, b) => a - b), arcs = [];
+        let cur = null;
+        for (const k of keys) {
+          const d = bins.get(k);
+          if (!usableDist(d)) continue;
+          const fits = cur && (k - cur.ks.at(-1)) * step <= WALL.ARC_MAX_JUMP_DEG && Math.abs(d - cur.ds.at(-1)) <= WALL.ARC_TOL_CM
+            && Math.max(d, ...cur.ds) - Math.min(d, ...cur.ds) <= 2 * WALL.ARC_TOL_CM;
+          if (fits) {
+            cur.ks.push(k);
+            cur.ds.push(d);
+          } else {
+            cur = { ks: [k], ds: [d] };
+            arcs.push(cur);
+          }
+        }
+        return arcs.filter(a => a.ds.length >= WALL.ARC_MIN_POINTS && (a.ks.at(-1) - a.ks[0]) * step >= WALL.ARC_MIN_SPAN_DEG).map(a => {
+          const dist = median(a.ds), inliers = a.ks.filter((_, i) => Math.abs(a.ds[i] - dist) <= WALL.ARC_TOL_CM);
+          return {
+            lo: a.ks[0] * step, hi: a.ks.at(-1) * step, // krawędzie łuku [st.] względem reference
+            center: mean(inliers) * step,
+            dist,
+            openLow: a.ks[0] <= keys[0], // łuk dochodzi do krawędzi zbadanego zakresu
+            openHigh: a.ks.at(-1) >= keys.at(-1),
+          };
+        });
+      }
+
+      // wybiera łuk obejmujący kierunek anchor, a jeśli takiego nie ma - najszerszy (krawędzie ścian
+      // dają tylko wąskie łuki), przy równej szerokości najbliższy
+      function wallPickArc(arcs, anchor) {
+        const margin = BEAM_DEG / 2;
+        const hit = arcs.filter(a => a.lo - margin <= anchor && anchor <= a.hi + margin);
+        if (hit.length) return hit.reduce((b, a) => Math.abs(a.center - anchor) < Math.abs(b.center - anchor) ? a : b);
+        const width = a => a.hi - a.lo;
+        return arcs.length ? arcs.reduce((b, a) => width(a) > width(b) || (width(a) === width(b) && a.dist < b.dist) ? a : b) : null;
+      }
+
+      // odległość na wprost: mediana z kierunków +/-5 st., o ile co najmniej dwa mają echo
+      function wallFrontDist(bins, step) {
+        const ds = [...bins].filter(([k, d]) => Math.abs(k * step) <= 5 && usableDist(d)).map(([, d]) => d);
+        return ds.length >= 2 ? median(ds) : null;
+      }
+
+      const showWallStatus = t => $('#map-status').textContent = t;
+
+      const WallFinder = {
+        active: false, runId: 0,
+        pose: null,
+        waiter: null, // jedyne oczekiwanie automatu: { kind, resolve, reject, timer }
+        motors: [0, 0], keepalive: 0,
+        pulseMsPerDeg: WALL.PULSE_MS_PER_DEG, pulseDrop: 0, // czas i obniżenie PWM impulsu, dobierane w trakcie pracy
+        scanState: null,
+        moving: false, nearCount: 0, lastFront: null,
+        heading: 0, refDist: 0, // kierunek na ścianę i ostatnia poprawna odległość od niej
+        wallDist: 0, // docelowa odległość od bieżącej ściany
+        marks: [],
+
+        start() {
+          this.active = true;
+          this.pose = null;
+          this.marks = [];
+          mapView.setMarks(this.marks);
+          this.run(++this.runId);
+        },
+
+        stop(reason) {
+          if (!this.active) return;
+          this.active = false;
+          this.moving = false;
+          this.scanState = null;
+          this.motors = [0, 0];
+          clearInterval(this.keepalive);
+          this.keepalive = 0;
+          if (Transport.open) {
+            Transport.send('W:RADAROFF');
+            Transport.send('W:SERVO:90');
+          }
+          if (reason !== 'finished') showWallStatus(`Zatrzymano (${reason}).`);
+          const w = this.waiter;
+          this.waiter = null;
+          if (w) {
+            clearTimeout(w.timer);
+            w.reject(WALL_ABORT);
+          }
+        },
+
+        async run(id) {
+          let reason = 'finished';
+          try {
+            drive('S', true);
+            await this.nextPose();
+            showWallStatus('Dojazd do przeszkody...');
+            const found = await this.driveForward(this.pose.theta, WALL.SEARCH_MAX_CM, WALL.STOP_CM);
+            if (!found.blocked) throw new Error('nie znaleziono przeszkody');
+            await this.alignToWall();
+            this.wallDist = Math.min(WALL.STOP_CM, this.refDist);
+            showWallStatus(await this.traceWalls(-1));
+          } catch (e) {
+            if (e === WALL_ABORT) return;
+            showWallStatus('Błąd: ' + e.message + '.');
+            reason = 'error';
+          }
+          if (id === this.runId && this.active) {
+            this.stop('finished');
+            MapControl.setRunning(false, reason);
+          }
+        },
+
+        // ---- zdarzenia z telemetrii ----
+        onPose(p) {
+          if (!this.active) return;
+          this.pose = p;
+          if (this.waiter && this.waiter.kind === 'pose') this.finishWait(p);
+        },
+
+        onMeasurement(m) {
+          if (!this.active) return;
+          if (this.scanState) this.onScanPoint(m);
+          else if (m.servo === 90) {
+            if (this.moving) {
+              mapAddMeasurement(m);
+              this.lastFront = m.dist;
+              this.nearCount = m.dist != null && m.dist < this.moving.stopCm ? this.nearCount + 1 : 0;
+            }
+            if (this.waiter && this.waiter.kind === 'ping') this.finishWait(m);
+          }
+        },
+
+        // przejście kończy się na krańcu zakresu albo przy zawróceniu serwa (gdy zgubiono ostatni punkt)
+        onScanPoint(m) {
+          const s = this.scanState, last = s.pts.at(-1);
+          if (last && m.servo === last.servo) return;
+          const forward = !last || (m.servo - last.servo) * s.dir > 0;
+          if (forward) {
+            s.pts.push(m);
+            if (s.record) mapAddMeasurement(m);
+            if (m.servo * s.dir < (s.dir > 0 ? s.to : s.from) * s.dir) return;
+          }
+          s.done.push(s.pts);
+          s.pts = [m];
+          s.dir = -s.dir;
+          if (s.done.length >= s.sweeps && this.waiter && this.waiter.kind === 'scan') this.finishWait(s.done);
+        },
+
+        // ---- oczekiwanie ----
+        wait(kind, ms, timeoutMsg) {
+          return new Promise((resolve, reject) => {
+            const w = this.waiter = { kind, resolve, reject };
+            w.timer = setTimeout(() => {
+              this.waiter = null;
+              if (timeoutMsg) reject(new Error(timeoutMsg));
+              else resolve();
+            }, ms);
+          });
+        },
+        finishWait(v) {
+          const w = this.waiter;
+          this.waiter = null;
+          clearTimeout(w.timer);
+          w.resolve(v);
+        },
+        sleep(ms) { return this.wait('sleep', ms); },
+        nextPose() { return this.wait('pose', WALL.DATA_TIMEOUT_MS, 'brak danych o pozycji'); },
+        nextPing() { return this.wait('ping', WALL.DATA_TIMEOUT_MS, 'brak pomiarów sonaru'); },
+
+        // ---- silniki ----
+        resetPulse() {
+          this.pulseMsPerDeg = WALL.PULSE_MS_PER_DEG;
+          this.pulseDrop = 0;
+        },
+        setMotors(l, r) {
+          this.motors = [clamp(Math.round(l), -255, 255), clamp(Math.round(r), -255, 255)];
+          this.sendMotors();
+          clearInterval(this.keepalive);
+          this.keepalive = l || r ? setInterval(() => this.sendMotors(), WALL.KEEPALIVE_MS) : 0;
+        },
+        sendMotors() { Transport.send(`W:MOTOR:${this.motors[0]},${this.motors[1]}`, false); },
+        async stopMotors() {
+          this.setMotors(0, 0);
+          await this.sleep(WALL.SETTLE_MS);
+        },
+
+        // ---- ruch ----
+        // jazda z utrzymaniem kursu (dir = -1: tyłem); kończy się po maxCm albo przy przeszkodzie bliżej niż stopCm
+        async driveForward(heading, maxCm, stopCm, dir = 1) {
+          Transport.send('W:SERVO:90');
+          await this.sleep(WALL.SERVO_MS);
+          const a = await this.nextPing(), b = await this.nextPing();
+          if (a.dist != null && b.dist != null && a.dist < stopCm && b.dist < stopCm) {
+            this.lastFront = b.dist;
+            return { blocked: true, traveled: 0 };
+          }
+
+          const start = this.pose;
+          let boost = 0, best = 0, bestAt = performance.now(), traveled = 0, blocked = false, prevAt = bestAt;
+          this.nearCount = 0;
+          this.moving = { stopCm };
+          const pwm = () => dir * Math.min(255, wallSpeeds.drive + boost);
+          this.setMotors(pwm(), pwm());
+          while (true) {
+            const p = await this.nextPose();
+            const now = performance.now(), last = traveled;
+            traveled = Math.hypot(p.x - start.x, p.y - start.y);
+            const speed = Math.max(0, traveled - last) / Math.max(.02, (now - prevAt) / 1000);
+            prevAt = now;
+            if (this.nearCount >= 2) blocked = true;
+            if (blocked || traveled + speed * WALL.DRIVE_LAG_S >= maxCm - WALL.BRAKE_CM) break;
+
+            if (traveled >= best + 1) {
+              best = traveled;
+              bestAt = now;
+            } else if (now - bestAt > WALL.STALL_MS) {
+              if (Math.abs(pwm()) >= 255) throw new Error('pojazd nie rusza z miejsca');
+              boost += WALL.PWM_BOOST;
+              bestAt = now;
+            }
+            const steer = clamp(angDiff(heading, p.theta) * WALL.STEER_GAIN, -WALL.STEER_MAX, WALL.STEER_MAX);
+            this.setMotors(pwm() - steer, pwm() + steer);
+          }
+          this.moving = false;
+          await this.stopMotors();
+          return { blocked, traveled };
+        },
+
+        // obrót w miejscu do kursu target (dodatni kąt = w lewo): najpierw ciągły, a blisko celu krótkimi
+        // impulsami, bo poza przychodzi zbyt rzadko, aby trafić w cel podczas ruchu
+        async turnTo(target) {
+          let boost = 0;
+          const power = base => Math.min(255, base + boost);
+          const stalled = () => {
+            if (power(wallSpeeds.turnSlow) >= 255) throw new Error('pojazd nie może się obrócić');
+            boost += WALL.PWM_BOOST;
+          };
+
+          await this.nextPose();
+          let err = angDiff(target, this.pose.theta);
+          if (Math.abs(err) > WALL.TURN_PULSE_DEG) {
+            const dir = Math.sign(err);
+            let prev = this.pose.theta, prevAt = performance.now(), moved = 0, movedAt = prevAt;
+            const spin = e => {
+              const pwm = power(Math.abs(e) > WALL.TURN_SLOW_DEG ? wallSpeeds.turn : wallSpeeds.turnSlow);
+              this.setMotors(-dir * pwm, dir * pwm);
+            };
+            spin(err);
+            while (true) {
+              const p = await this.nextPose(), now = performance.now();
+              const step = angDiff(p.theta, prev), rate = Math.abs(step) / Math.max(.02, (now - prevAt) / 1000);
+              prev = p.theta;
+              prevAt = now;
+              err = angDiff(target, p.theta);
+              if (err * dir <= rate * WALL.TURN_LAG_S + WALL.TURN_PULSE_DEG / 2) break;
+              moved += Math.abs(step);
+              if (moved >= 1) {
+                moved = 0;
+                movedAt = now;
+              } else if (now - movedAt > WALL.STALL_MS) {
+                stalled();
+                movedAt = now;
+              }
+              spin(err);
+            }
+            await this.stopMotors();
+          }
+
+          for (let n = 0; n < WALL.TURN_TRIES; n++) {
+            await this.nextPose();
+            err = angDiff(target, this.pose.theta);
+            if (Math.abs(err) <= WALL.TURN_TOL_DEG) return;
+            const dir = Math.sign(err), pwm = Math.max(SPEED_MIN, power(wallSpeeds.turnSlow) - this.pulseDrop);
+            const ms = clamp(Math.abs(err) * this.pulseMsPerDeg, WALL.PULSE_MIN_MS, WALL.PULSE_MAX_MS);
+            this.setMotors(-dir * pwm, dir * pwm);
+            await this.sleep(ms);
+            await this.stopMotors();
+            await this.nextPose();
+            const gain = (angDiff(this.pose.theta, target) + err) * dir; // obrót wykonany w stronę celu
+            if (gain < .5) {
+              if (this.pulseDrop > 0) this.pulseDrop = Math.max(0, this.pulseDrop - WALL.PWM_BOOST);
+              else stalled();
+            } else {
+              this.pulseMsPerDeg = clamp(this.pulseMsPerDeg * clamp(Math.abs(err) / gain, .6, 1.4), 2, 60);
+              // nawet najkrótszy impuls przeskakuje cel: trzeba go osłabić
+              if (ms <= WALL.PULSE_MIN_MS && gain > Math.abs(err) + WALL.TURN_TOL_DEG) this.pulseDrop += WALL.PWM_BOOST;
+            }
+          }
+          throw new Error('nie udało się ustawić kursu');
+        },
+
+        // ---- skan ----
+        // skan radarem; zwraca listę przejść (każde to lista pomiarów), record = nanoszenie na mapę
+        async scan(from, to, step, sweeps, record) {
+          Transport.send('W:RADAROFF');
+          Transport.send('W:SERVO:' + from);
+          await this.sleep(WALL.SWEEP_MS);
+          this.scanState = { from, to, sweeps, record, dir: 1, pts: [], done: [] };
+          Transport.send(`W:RADAR:${from},${to},${step},${WALL.SCAN_INTERVAL_MS}`);
+          const count = ((to - from) / step + 1) * sweeps;
+          const done = await this.wait('scan', count * (WALL.SCAN_INTERVAL_MS + 150) + 3000, 'skan nie został ukończony');
+          this.scanState = null;
+          Transport.send('W:RADAROFF');
+          return done;
+        },
+
+        // skan zgrubny 15-165 st.; wyniki trafiają do bins względem kursu reference
+        async scanInto(bins, reference) {
+          const [pts] = await this.scan(SERVO_MIN, SERVO_MAX, WALL.SCAN_STEP, 1, true);
+          wallBins(pts, reference, WALL.SCAN_STEP, bins);
+        },
+
+        // ---- etapy algorytmu ----
+        // znajduje cały łuk (w razie potrzeby obracając pojazd), a potem dokładnymi skanami
+        // wyznacza kierunek prostopadły do ściany i ustawia pojazd przodem do niego
+        // minWidth: najpierw szukane są łuki co najmniej tak szerokie; węższe dopiero, gdy nie ma innych
+        async alignToWall(minWidth = 0) {
+          const reference = this.pose.theta, bins = new Map();
+          let anchor = 0, arc = null, spins = 0;
+          for (let n = 0; ; n++) {
+            showWallStatus('Skan i szukanie łuku...');
+            await this.scanInto(bins, reference);
+            const arcs = wallFindArcs(bins, WALL.SCAN_STEP);
+            arc = wallPickArc(arcs.filter(a => a.hi - a.lo >= minWidth), anchor);
+            if (!arc && spins >= 2) arc = wallPickArc(arcs, anchor);
+            if (!arc) { // w zakresie skanu nie ma ściany: kolejne skany obejmują resztę otoczenia
+              if (++spins > 2) throw WALL_LOST;
+              await this.turnTo(reference + (spins === 1 ? 1 : -1) * WALL.SEARCH_TURN_DEG);
+              continue;
+            }
+            anchor = arc.center;
+            if (!(arc.openHigh || arc.openLow) || n >= WALL.ARC_MAX_TURNS) break;
+            // krawędź łuku trafia na środek kolejnego skanu
+            await this.turnTo(reference + (arc.openHigh ? arc.hi : arc.lo));
+          }
+
+          await this.fineAlign(reference + arc.center, (arc.hi - arc.lo) / 2);
+        },
+
+        // dokładne skany łuku: wyznacza kierunek prostopadły do ściany i odległość od niej
+        async fineAlign(normal, half) {
+          let last = null;
+          for (let n = 0; n < WALL.ALIGN_TRIES; n++) {
+            showWallStatus(`Dokładne ustawianie do ściany (${n + 1}/${WALL.ALIGN_TRIES})...`);
+            await this.turnTo(normal);
+            const reach = Math.min(90 - SERVO_MIN, WALL.FINE_STEP * Math.ceil((half + WALL.FINE_MARGIN_DEG) / WALL.FINE_STEP));
+            const sweeps = await this.scan(90 - reach, 90 + reach, WALL.FINE_STEP, WALL.FINE_SWEEPS, false);
+
+            // środek liczony osobno dla każdego kierunku ruchu serwa, a potem uśredniany
+            const merged = new Map(), arcs = [];
+            for (const pts of sweeps) {
+              wallBins(pts, normal, WALL.FINE_STEP, merged);
+              const a = wallPickArc(wallFindArcs(wallBins(pts, normal, WALL.FINE_STEP), WALL.FINE_STEP), 0);
+              if (a && !a.openLow && !a.openHigh) arcs.push(a);
+            }
+            if (!arcs.length) { // łuk nie zmieścił się w zakresie albo zanikł - następny skan będzie szerszy
+              half += WALL.FINE_MARGIN_DEG;
+              continue;
+            }
+            const correction = mean(arcs.map(a => a.center)), front = wallFrontDist(merged, WALL.FINE_STEP);
+            half = mean(arcs.map(a => (a.hi - a.lo) / 2));
+            normal += correction;
+            last = front != null ? { normal, front, correction } : null;
+            if (last && Math.abs(correction) <= WALL.ALIGN_TOL_DEG) break;
+          }
+          // przy zaszumionych pomiarach wystarcza niewiele większa zgodność ostatnich skanów
+          if (!last || Math.abs(last.correction) > 2 * WALL.ALIGN_TOL_DEG) throw new Error('nie udało się dokładnie ustawić do ściany');
+          await this.turnTo(last.normal);
+          this.heading = last.normal;
+          this.refDist = last.front;
+        },
+
+        // odległość na wprost z kilku pomiarów na postoju
+        async measureFront() {
+          Transport.send('W:SERVO:90');
+          await this.sleep(WALL.SERVO_MS);
+          const ds = [];
+          for (let n = 0; n < 3 * WALL.FRONT_PINGS && ds.length < WALL.FRONT_PINGS; n++) { // zapas na brak echa
+            const m = await this.nextPing();
+            if (usableDist(m.dist)) ds.push(m.dist);
+          }
+          if (ds.length < 3) throw new Error('brak pomiaru ściany na wprost');
+          return median(ds);
+        },
+
+        // podjazd lub odsunięcie, aż odległość od ściany będzie równa wallDist
+        async adjustDistance() {
+          showWallStatus('Ustawianie odległości od ściany...');
+          for (let n = 0; ; n++) {
+            this.refDist = await this.measureFront();
+            const delta = this.refDist - this.wallDist;
+            if (Math.abs(delta) <= WALL.DIST_TOL_CM || n >= WALL.DIST_TRIES) return;
+            if (delta > 0) await this.driveForward(this.heading, delta, Math.min(WALL.BLOCK_CM, this.wallDist - WALL.DIST_TOL_CM));
+            else await this.driveForward(this.heading, -delta, 0, -1);
+            await this.turnTo(this.heading);
+          }
+        },
+
+        // narożnik wypukły: odjazd w bok od krawędzi, minięcie jej i obrót przodem do bocznej ściany;
+        // zwraca przejechaną drogę. Przeszkoda po drodze przerywa manewr i staje się kolejną ścianą
+        async roundCorner(side) {
+          const course = this.heading + side * 90, ahead = this.heading;
+          await this.turnTo(course);
+          const away = await this.driveForward(course, WALL.STOP_CM, WALL.BLOCK_CM);
+          if (away.blocked) return away.traveled;
+          await this.turnTo(ahead);
+          const past = this.refDist + WALL.SENSOR_OFFSET_CM + WALL.CORNER_PAST_CM;
+          const pass = await this.driveForward(ahead, past, WALL.BLOCK_CM);
+          if (!pass.blocked) await this.turnTo(ahead - side * 90);
+          return away.traveled + pass.traveled;
+        },
+
+        // obchodzi kolejne ściany (side = -1: w prawo); zwraca opis zakończenia. Ściana kończy się, gdy
+        // przeszkoda zatrzyma krok albo odległość na wprost się zmieni - auto ustawia się wtedy
+        // prostopadle do nowej ściany, w odległości STOP_CM, i idzie dalej w tę samą stronę.
+        // Gdy na wprost nie ma żadnej ściany, kolejna leży za narożnikiem wypukłym
+        async traceWalls(side) {
+          const start = this.pose;
+          let good = this.pose, turned = 0, walls = 1, path = 0, n = 0, sinceAlign = 0; // good: ostatnia pozycja przy ścianie
+          const summary = t => `Zakończono: ${t}; narożniki: ${this.marks.length}, droga: ${(path / 100).toFixed(1)} m.`;
+          const closed = () => Math.abs(turned) >= WALL.CLOSE_TURN_DEG
+            && Math.hypot(this.pose.x - start.x, this.pose.y - start.y) <= WALL.CLOSE_CM;
+
+          while (true) {
+            if (walls > WALL.MAX_WALLS || path >= WALL.MAX_PATH_CM) return summary('osiągnięto limit obchodu');
+            showWallStatus(`Ściana ${walls}, krok ${++n}...`);
+            const course = this.heading + side * 90;
+            await this.turnTo(course);
+            const step = await this.driveForward(course, WALL.STEP_CM, WALL.BLOCK_CM);
+            const blockedAt = step.blocked ? this.lastFront : null;
+            path += step.traveled;
+
+            if (step.blocked) {
+              this.addBoundary(this.pose, blockedAt || 0, side); // nowa przeszkoda jest już przed autem
+            } else {
+              await this.turnTo(this.heading);
+              const view = new Map();
+              await this.scanInto(view, this.heading);
+              const d = wallFrontDist(view, WALL.SCAN_STEP), p = this.pose;
+              const ahead = wallFindArcs(view, WALL.SCAN_STEP).find(a => a.lo <= 0 && 0 <= a.hi);
+              if (d != null && Math.abs(d - this.refDist) <= WALL.SAME_TOL_CM) {
+                this.refDist = d;
+                good = p;
+                if (ahead && ++sinceAlign >= WALL.REALIGN_STEPS) {
+                  const before = this.heading;
+                  showWallStatus('Korekta kąta i odległości od ściany...');
+                  await this.fineAlign(before + ahead.center, (ahead.hi - ahead.lo) / 2);
+                  await this.adjustDistance();
+                  turned += angDiff(this.heading, before);
+                  sinceAlign = 0;
+                  good = this.pose;
+                }
+                if (closed()) return summary('pełny obieg');
+                continue;
+              }
+              this.addBoundary({ x: (good.x + p.x) / 2, y: (good.y + p.y) / 2 }, 0, side);
+              const wallAhead = d != null && ahead && ahead.hi - ahead.lo >= WALL.WALL_ARC_MIN_DEG;
+              if (!wallAhead) path += await this.roundCorner(side);
+            }
+
+            const previous = this.heading;
+            try {
+              await this.alignToWall(WALL.WALL_ARC_MIN_DEG);
+            } catch (e) {
+              if (e === WALL_LOST) return summary('brak kolejnej ściany');
+              throw e;
+            }
+            this.wallDist = WALL.STOP_CM;
+            await this.adjustDistance();
+            turned += angDiff(this.heading, previous);
+            walls++;
+            sinceAlign = 0;
+            good = this.pose;
+            if (closed() || Math.abs(turned) >= WALL.CLOSE_MAX_TURN_DEG) return summary('pełny obieg');
+          }
+        },
+
+        // granica: punkt ściany naprzeciw pozycji p, przesunięty wzdłuż ściany o along
+        addBoundary(p, along, side) {
+          const h = rad(this.heading), s = rad(this.heading + side * 90), r = this.refDist + WALL.SENSOR_OFFSET_CM;
+          this.marks.push({
+            x: p.x + r * Math.cos(h) + along * Math.cos(s),
+            y: p.y + r * Math.sin(h) + along * Math.sin(s),
+          });
+          mapView.setMarks([...this.marks]);
+        },
+      };
+
+      // MAPA: HANDLERY - łączą przyciski i telemetrię z wykrywaniem ściany
+      // Dostępne elementy siatki:
+      //   occGrid.colOf(x), rowOf(y)         - komórka zawierająca punkt [cm]
+      //   occGrid.cellX(i), cellY(j)         - środek komórki [cm]
+      //   occGrid.inBounds(i, j)             - czy komórka leży na mapie
+      //   occGrid.markOccupied(i, j)         - dodaje l_occ do komórki (równ. 3.6, z ograniczeniem)
+      //   occGrid.markFree(i, j)             - dodaje l_free do komórki (równ. 3.6, z ograniczeniem)
+      //   occGrid.logOdds(i, j), probability(i, j) - odczyt komórki
+      //   occGrid.params                     - aktualne { lOcc, lFree, l0, lMin, lMax }
+      //   Transport.send('W:...')            - komenda do pojazdu
+      // Zmienione komórki pojawiają się na mapie same, bez wywoływania rysowania.
+      const MapHandlers = {
+        // użytkownik uruchomił mapowanie
+        onStart() {
+          WallFinder.start();
+        },
+
+        // mapowanie zatrzymane, silniki dostały już komendę stop
+        // reason: 'user', 'tab' (zmiana zakładki), 'connection', 'calibration', 'hidden' (ukryta karta),
+        // 'poseReset', 'finished' (obie granice znalezione), 'error'
+        onStop(reason) {
+          WallFinder.stop(reason);
+        },
+
+        // pomiar sonaru podczas mapowania; poza (x, y, theta) pochodzi z chwili pomiaru
+        // m = { servo [st., 90 = przód], dist [cm] albo null przy braku echa, x [cm], y [cm], theta [st.] }
+        onMeasurement(m) {
+          WallFinder.onMeasurement(m);
+        },
+
+        // bieżąca poza pojazdu podczas mapowania: p = { x [cm], y [cm], theta [st.] }
+        onPose(p) {
+          WallFinder.onPose(p);
+        },
+
+        // użytkownik wyczyścił mapę (occGrid jest już wypełniona wartością l_0)
+        onClear() {
+        },
+
+        // użytkownik zmienił parametry l (occGrid używa już nowych wartości)
+        onParamsChange(params) {
+        },
+
+        // użytkownik wyzerował pozycję: kolejne pomiary będą w nowym układzie współrzędnych
+        onPoseReset() {
+          MapControl.setRunning(false, 'poseReset');
+        },
+      };
+
+      // LOGIKA: MAPA
+      const MapControl = {
+        running: false,
+
+        setRunning(on, reason = 'user') {
+          if (on === this.running) return;
+          this.running = on;
+          showMapRun(on);
+          if (on) {
+            MapHandlers.onStart();
+            return;
+          }
+          if (Transport.open) drive('S', true); // pojazd nie może jechać dalej bez nadzoru strony
+          MapHandlers.onStop(reason);
+        },
+
+        pose(p) {
+          mapView.setPose(p);
+          if (this.running) MapHandlers.onPose(p);
+        },
+
+        measurement(m) {
+          if (this.running) MapHandlers.onMeasurement(m);
+        },
+      };
+
+      $('#map-run').onclick = () => {
+        if (MapControl.running) MapControl.setRunning(false);
+        else if (!Transport.open) Dashboard.logSent('Mapowanie: brak połączenia');
+        else if (!Transport.calibrating) MapControl.setRunning(true);
+      };
+      $('#map-clear').onclick = () => {
+        if (occGrid.updates && !confirm('Wyczyścić całą mapę?')) return;
+        occGrid.clear();
+        MapHandlers.onClear();
+      };
+      $('#map-save').onclick = () => {
+        mapView.syncImage();
+        const c = document.createElement('canvas'), ctx = c.getContext('2d');
+        c.width = occGrid.cols * MAP_PNG_SCALE;
+        c.height = occGrid.rows * MAP_PNG_SCALE;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(mapView.off, 0, 0, c.width, c.height);
+        c.toBlob(blob => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `mapa_${stamp(new Date())}.png`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        });
+      };
+
+      // parametry l: suwak i pole liczbowe edytują wspólny szkic, a mapa przyjmuje go po zatwierdzeniu
+      const mapDraft = { ...occGrid.params };
+
+      function applyMapDraft() {
+        showMapParams(mapDraft);
+        if (occGrid.setParams(mapDraft)) MapHandlers.onParamsChange({ ...occGrid.params });
+      }
+
+      $$('[data-l]').forEach(el => {
+        const k = el.dataset.l;
+        el.addEventListener('input', () => {
+          mapDraft[k] = el.value === '' ? NaN : el.type === 'range' ? mapSnap(+el.value) : +el.value;
+          showMapParams(mapDraft, el);
+        });
+        el.addEventListener('change', () => {
+          const v = el.value === '' ? occGrid.params[k] : +el.value;
+          mapDraft[k] = mapSnap(clamp(v, +el.min, +el.max));
+          applyMapDraft();
+        });
+      });
+      $('#map-l-default').onclick = () => {
+        Object.assign(mapDraft, MAP_L_DEFAULT);
+        applyMapDraft();
+      };
+      showMapParams(mapDraft);
+
+      // prędkości automatu; obrót dokładny nie może być szybszy od zwykłego
+      function showWallSpeeds() {
+        for (const el of $$('[data-speed]')) {
+          el.value = wallSpeeds[el.dataset.speed];
+          if (el.type === 'range') paintRange(el);
+        }
+      }
+
+      function setWallSpeed(key, value) {
+        const old = wallSpeeds.turnSlow;
+        wallSpeeds[key] = value;
+        if (key === 'turn') wallSpeeds.turnSlow = Math.min(wallSpeeds.turnSlow, value);
+        if (key === 'turnSlow') wallSpeeds.turn = Math.max(wallSpeeds.turn, value);
+        if (wallSpeeds.turnSlow !== old) WallFinder.resetPulse(); // inna reakcja na impuls
+        showWallSpeeds();
+      }
+
+      $$('[data-speed]').forEach(el => {
+        el.min = SPEED_MIN;
+        el.max = SPEED_MAX;
+        el.addEventListener('input', () => {
+          for (const o of $$(`[data-speed=${el.dataset.speed}]`)) {
+            if (o === el) continue;
+            o.value = el.value;
+            if (o.type === 'range') paintRange(o);
+          }
+        });
+        el.addEventListener('change', () => {
+          const v = el.value === '' ? wallSpeeds[el.dataset.speed] : Math.round(+el.value);
+          setWallSpeed(el.dataset.speed, clamp(v, SPEED_MIN, SPEED_MAX));
+        });
+      });
+      $('#map-speed-default').onclick = () => {
+        Object.assign(wallSpeeds, WALL_SPEED_DEFAULT);
+        WallFinder.resetPulse();
+        showWallSpeeds();
+      };
+      showWallSpeeds();
+
+      // widok mapy: przeciąganie, kółko myszy i przyciski
+      const mapCv = mapView.cv;
+      const mapPointer = e => {
+        const r = mapCv.getBoundingClientRect();
+        return [e.clientX - r.left, e.clientY - r.top];
+      };
+      let mapDrag = null;
+      mapCv.addEventListener('pointerdown', e => {
+        mapCv.setPointerCapture(e.pointerId);
+        mapCv.classList.add('drag');
+        mapDrag = mapPointer(e);
+      });
+      mapCv.addEventListener('pointermove', e => {
+        const [px, py] = mapPointer(e);
+        if (mapDrag) {
+          mapView.setFollow(false);
+          mapView.moveTo(mapView.vx - (px - mapDrag[0]) / mapView.zoom, mapView.vy + (py - mapDrag[1]) / mapView.zoom);
+          mapDrag = [px, py];
+        }
+        mapView.setHover(px, py);
+      });
+      for (const type of ['pointerup', 'pointercancel']) {
+        mapCv.addEventListener(type, () => {
+          mapDrag = null;
+          mapCv.classList.remove('drag');
+        });
+      }
+      mapCv.addEventListener('pointerleave', () => mapView.setHover(null));
+      mapCv.addEventListener('wheel', e => {
+        e.preventDefault();
+        mapView.zoomBy(e.deltaY < 0 ? MAP_ZOOM_STEP : 1 / MAP_ZOOM_STEP, ...mapPointer(e));
+      }, { passive: false });
+      $('#map-zoom-in').onclick = () => mapView.zoomBy(MAP_ZOOM_STEP);
+      $('#map-zoom-out').onclick = () => mapView.zoomBy(1 / MAP_ZOOM_STEP);
+      $('#map-fit').onclick = () => mapView.fit();
+      $('#map-follow').onclick = () => mapView.setFollow(!mapView.follow);
+
       // PUBLICZNE API
       window.Dashboard = {
         updateTelemetry,
@@ -1531,10 +2788,14 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         setSnapshot,
         setMode,
         radar,
+        occGrid,
+        mapView,
+        mapHandlers: MapHandlers,
       };
 
       // START
       radarLoop();
+      mapLoop();
       Transport.connect();
       setInterval(() => Transport.checkData(), 500);
     </script>
