@@ -19,7 +19,7 @@ void wsInit();
 // obsługuje serwer WebSocket; wywoływać w każdym obiegu loop()
 void wsLoop();
 
-// wysyła tekst do wszystkich połączonych klientów
+// wysyła tekst do wszystkich połączonych klientów; klient, do którego wysłanie się nie powiedzie, jest rozłączany
 void wsBroadcast(const char* text);
 
 // zwraca true, jeśli połączony jest co najmniej jeden klient

@@ -137,6 +137,13 @@ void commSendNext() {
   }
 }
 
+void commSendInitError(const __FlashStringHelper* reason, unsigned int attempt) {
+  Serial.print(F("A:INIT:"));
+  Serial.print(reason);
+  Serial.print(',');
+  Serial.println(attempt);
+}
+
 void commRequestConnection() {
   if (millis() - lastConnectionMs < CONNECTION_INTERVAL_MS) return;
   Serial.println(F("A:CONNECTION"));

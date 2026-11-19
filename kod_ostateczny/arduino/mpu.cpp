@@ -111,11 +111,6 @@ bool mpuConfigure() {
   return ok;
 }
 
-bool mpuInit() {
-  // pojazd przy uruchomieniu stoi, więc od razu wyznaczamy offset żyroskopu
-  return mpuConfigure() && mpuCalibrate(MPU_CALIB_SAMPLES);
-}
-
 bool mpuCalibrate(uint16_t samples) {
   if (samples == 0) return false;
 

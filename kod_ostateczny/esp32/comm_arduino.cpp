@@ -13,9 +13,14 @@ const int UART_RX_PIN = 13;
 const int UART_TX_PIN = 14;
 const unsigned long UART_BAUD = 38400;
 
-// bufor sprzętowego UART; Arduino wysyła ~1.5 kB/s, a wysyłanie przez WebSocket do wolnego klienta
+// bufor sprzętowego UART; Arduino wysyła ~2 kB/s, a wysyłanie przez WebSocket do wolnego klienta
 // może zablokować loop() nawet na kilka sekund (WEBSOCKETS_TCP_TIMEOUT)
 const size_t UART_RX_BUFFER_SIZE = 2048;
+
+// limit bajtów odczytywanych w jednym obiegu loop(); bez niego ciągły strumień z Arduino
+// przy wolnym wysyłaniu przez WebSocket nie pozwalał wyjść z pętli odczytu
+// (status i komendy dla Arduino ani obsługa WebSocketa nie były wtedy wykonywane)
+const size_t UART_MAX_BYTES_PER_UPDATE = 256;
 
 // bufor odbiorczy linii
 const size_t RX_BUF_SIZE = 64;
@@ -126,7 +131,7 @@ void arduinoUpdate() {
   if (millis() - lastStatusMs >= STATUS_REPEAT_MS) sendConnectionStatus();
   sendQueuedCommand();
 
-  while (Serial2.available() > 0) {
+  for (size_t i = 0; i < UART_MAX_BYTES_PER_UPDATE && Serial2.available() > 0; i++) {
     // po utracie danych bieżąca linia jest niekompletna - odrzucamy ją do końca
     // (sprawdzane przy każdym bajcie, bo błąd zgłasza inne zadanie w trakcie odczytu)
     if (rxError) {

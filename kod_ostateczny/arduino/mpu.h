@@ -27,14 +27,11 @@ struct MpuData {
   int16_t temp; // temperatura [0.01 stopnia C]
 };
 
-// konfiguruje układ i kalibruje żyroskop (MPU_CALIB_SAMPLES próbek);
-// zwraca false, jeśli układ nie odpowiada lub kalibracja się nie powiodła
-bool mpuInit();
-
 // resetuje i konfiguruje układ bez kalibracji (offset żyroskopu pozostaje bez zmian);
-// używane po awarii I2C, gdy pojazd mógł być w ruchu
+// zwraca false, jeśli układ nie odpowiada
 bool mpuConfigure();
 
+// wyznacza offset żyroskopu; pojazd musi stać; zwraca false przy braku danych lub awarii I2C
 bool mpuCalibrate(uint16_t samples);
 
 // true, jeśli od ostatniego odczytu powstała nowa próbka

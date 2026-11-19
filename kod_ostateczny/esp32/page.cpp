@@ -827,6 +827,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       const CAM_URL = `http://${HOST}:81`;
       const WS_RETRY_MS = 1500; // odstęp między próbami ponownego połączenia
       const DATA_TIMEOUT_MS = 2000; // brak danych przez ten czas = brak odpowiedzi Arduino
+      const WS_STALL_MS = 6000; // brak danych dłużej niż restart Arduino = zatrzymane połączenie, łączymy się od nowa
+      const MAP_RESUME_DELAY_MS = 1000; // mapowanie przerwane utratą danych jest wznawiane, gdy dane płyną od tego czasu
+      const MAP_RESUME_MAX_SHIFT_CM = 20; // większa zmiana pozy podczas przerwy blokuje wznowienie (np. utrata pozy
+      const MAP_RESUME_MAX_TURN_DEG = 15; // po wyłączeniu zasilania Arduino albo przestawienie pojazdu)
       const MOTOR_REPEAT_MS = 500; // powtarzanie W:MOTOR podczas jazdy
       const SERVO_HOLD_MS = 400;
       const CALIB_GAP_MS = 1000;
@@ -1669,6 +1673,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       const Transport = {
         ws: null, lastRx: 0,
         dataOk: null, // null = jeszcze nie wiadomo, true = dane docierają, false = dane ustały
+        dataSince: 0, // od kiedy dane docierają bez przerwy
         calibrating: false, calibTimer: 0,
         queue: [], // komendy wstrzymane na czas kalibracji
 
@@ -1683,15 +1688,27 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             this.send(scanOn ? radarCmd() : 'W:RADAROFF');
           };
           ws.onmessage = e => this.receive(String(e.data));
-          ws.onclose = () => {
-            this.dataOk = null;
-            this.finishCalibration();
-            setConnection('offline', {uart: NO_DATA});
-            held.length = 0;
-            if (activeDir !== 'S') setDrive('S');
-            MapControl.setRunning(false, 'connection');
-            setTimeout(() => this.connect(), WS_RETRY_MS);
-          };
+          ws.onclose = () => this.closed();
+        },
+
+        closed() {
+          this.dataOk = null;
+          this.finishCalibration();
+          setConnection('offline', {uart: NO_DATA});
+          held.length = 0;
+          if (activeDir !== 'S') setDrive('S');
+          MapControl.setRunning(false, 'connection');
+          setTimeout(() => this.connect(), WS_RETRY_MS);
+        },
+
+        // przy zatrzymanym połączeniu TCP przeglądarka może bardzo długo nie zgłosić onclose,
+        // dlatego stare gniazdo jest porzucane od razu
+        reconnect() {
+          const ws = this.ws;
+          this.ws = null;
+          ws.onclose = ws.onmessage = null;
+          ws.close();
+          this.closed();
         },
 
         // log = false dla komend powtarzanych cyklicznie, aby nie zalewały logu
@@ -1733,8 +1750,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           const now = performance.now(), gap = now - this.lastRx;
           this.lastRx = now;
           if (this.calibrating && gap >= CALIB_GAP_MS) this.finishCalibration();
+          if (gap >= DATA_TIMEOUT_MS / 2) this.dataSince = now; // po przerwie ciągłość liczy się od nowa
           if (this.dataOk !== true) {
             this.dataOk = true;
+            this.dataSince = now;
             setConnection('online', {uart: 'OK'});
           }
           Dashboard.logReceived(line);
@@ -1742,8 +1761,21 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           if (frame) updateTelemetry(frame);
         },
 
+        // true, gdy dane z pojazdu nie przychodzą (przerwane połączenie albo restart Arduino)
+        stale() {
+          return !this.open || performance.now() - this.lastRx >= DATA_TIMEOUT_MS / 2;
+        },
+
+        // true, gdy dane przychodzą bez przerwy co najmniej od ms
+        steadyFor(ms) {
+          return !this.stale() && !this.calibrating && this.dataOk === true && performance.now() - this.dataSince >= ms;
+        },
+
         checkData() {
-          if (!this.open || this.calibrating || this.dataOk === false || performance.now() - this.lastRx < DATA_TIMEOUT_MS) return;
+          if (!this.open || this.calibrating) return;
+          const silentMs = performance.now() - this.lastRx;
+          if (silentMs >= WS_STALL_MS) return this.reconnect();
+          if (this.dataOk === false || silentMs < DATA_TIMEOUT_MS) return;
           this.dataOk = false;
           setConnection('connecting', {sub: 'Brak danych z Arduino', uart: 'BRAK'});
         }
@@ -2157,13 +2189,18 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         heading: 0, refDist: 0, // kierunek na ścianę i ostatnia poprawna odległość od niej
         wallDist: 0, // docelowa odległość od bieżącej ściany
         marks: [],
+        trace: null, // postęp obchodu ścian { start, turned, walls, path, n }; zachowany do wznowienia
 
-        start() {
+        // resume: wznowienie po przerwie w połączeniu - obchód jest kontynuowany, jeśli już się zaczął
+        start(resume = false) {
           this.active = true;
           this.pose = null;
-          this.marks = [];
-          mapView.setMarks(this.marks);
-          this.run(++this.runId);
+          if (!resume) {
+            this.marks = [];
+            this.trace = null;
+          }
+          mapView.setMarks([...this.marks]);
+          this.run(++this.runId, resume && this.trace !== null);
         },
 
         stop(reason) {
@@ -2187,21 +2224,35 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           }
         },
 
-        async run(id) {
+        async run(id, resume) {
           let reason = 'finished';
           try {
             drive('S', true);
             await this.nextPose();
-            showWallStatus('Dojazd do przeszkody...');
-            const found = await this.driveForward(this.pose.theta, WALL.SEARCH_MAX_CM, WALL.STOP_CM);
-            if (!found.blocked) throw new Error('nie znaleziono przeszkody');
-            await this.alignToWall();
-            this.wallDist = Math.min(WALL.STOP_CM, this.refDist);
+            if (resume) {
+              // ponowne ustawienie do obchodzonej ściany (heading wskazuje na nią także po przerwie)
+              showWallStatus('Wznowienie: ustawianie do ściany...');
+              const previous = this.heading;
+              await this.turnTo(previous);
+              await this.alignToWall(WALL.WALL_ARC_MIN_DEG);
+              await this.adjustDistance();
+              this.trace.turned += angDiff(this.heading, previous);
+            } else {
+              showWallStatus('Dojazd do przeszkody...');
+              const found = await this.driveForward(this.pose.theta, WALL.SEARCH_MAX_CM, WALL.STOP_CM);
+              if (!found.blocked) throw new Error('nie znaleziono przeszkody');
+              await this.alignToWall();
+              this.wallDist = Math.min(WALL.STOP_CM, this.refDist);
+            }
             showWallStatus(await this.traceWalls(-1));
           } catch (e) {
             if (e === WALL_ABORT) return;
-            showWallStatus('Błąd: ' + e.message + '.');
-            reason = 'error';
+            if (Transport.stale()) {
+              reason = 'connection'; // brak odpowiedzi wynika z przerwy w danych, a nie z błędu automatu
+            } else {
+              showWallStatus('Błąd: ' + e.message + '.');
+              reason = 'error';
+            }
           }
           if (id === this.runId && this.active) {
             this.stop('finished');
@@ -2514,20 +2565,22 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         // prostopadle do nowej ściany, w odległości STOP_CM, i idzie dalej w tę samą stronę.
         // Gdy na wprost nie ma żadnej ściany, kolejna leży za narożnikiem wypukłym
         async traceWalls(side) {
-          const start = this.pose;
-          let good = this.pose, turned = 0, walls = 1, path = 0, n = 0, sinceAlign = 0; // good: ostatnia pozycja przy ścianie
-          const summary = t => `Zakończono: ${t}; narożniki: ${this.marks.length}, droga: ${(path / 100).toFixed(1)} m.`;
-          const closed = () => Math.abs(turned) >= WALL.CLOSE_TURN_DEG
-            && Math.hypot(this.pose.x - start.x, this.pose.y - start.y) <= WALL.CLOSE_CM;
+          // postęp jest w this.trace, aby obchód dało się kontynuować po wznowieniu
+          if (!this.trace) this.trace = { start: this.pose, turned: 0, walls: 1, path: 0, n: 0 };
+          const t = this.trace;
+          let good = this.pose, sinceAlign = 0; // good: ostatnia pozycja przy ścianie
+          const summary = s => `Zakończono: ${s}; narożniki: ${this.marks.length}, droga: ${(t.path / 100).toFixed(1)} m.`;
+          const closed = () => Math.abs(t.turned) >= WALL.CLOSE_TURN_DEG
+            && Math.hypot(this.pose.x - t.start.x, this.pose.y - t.start.y) <= WALL.CLOSE_CM;
 
           while (true) {
-            if (walls > WALL.MAX_WALLS || path >= WALL.MAX_PATH_CM) return summary('osiągnięto limit obchodu');
-            showWallStatus(`Ściana ${walls}, krok ${++n}...`);
+            if (t.walls > WALL.MAX_WALLS || t.path >= WALL.MAX_PATH_CM) return summary('osiągnięto limit obchodu');
+            showWallStatus(`Ściana ${t.walls}, krok ${++t.n}...`);
             const course = this.heading + side * 90;
             await this.turnTo(course);
             const step = await this.driveForward(course, WALL.STEP_CM, WALL.BLOCK_CM);
             const blockedAt = step.blocked ? this.lastFront : null;
-            path += step.traveled;
+            t.path += step.traveled;
 
             if (step.blocked) {
               this.addBoundary(this.pose, blockedAt || 0, side); // nowa przeszkoda jest już przed autem
@@ -2545,7 +2598,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                   showWallStatus('Korekta kąta i odległości od ściany...');
                   await this.fineAlign(before + ahead.center, (ahead.hi - ahead.lo) / 2);
                   await this.adjustDistance();
-                  turned += angDiff(this.heading, before);
+                  t.turned += angDiff(this.heading, before);
                   sinceAlign = 0;
                   good = this.pose;
                 }
@@ -2554,7 +2607,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
               }
               this.addBoundary({ x: (good.x + p.x) / 2, y: (good.y + p.y) / 2 }, 0, side);
               const wallAhead = d != null && ahead && ahead.hi - ahead.lo >= WALL.WALL_ARC_MIN_DEG;
-              if (!wallAhead) path += await this.roundCorner(side);
+              if (!wallAhead) t.path += await this.roundCorner(side);
             }
 
             const previous = this.heading;
@@ -2566,11 +2619,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             }
             this.wallDist = WALL.STOP_CM;
             await this.adjustDistance();
-            turned += angDiff(this.heading, previous);
-            walls++;
+            t.turned += angDiff(this.heading, previous);
+            t.walls++;
             sinceAlign = 0;
             good = this.pose;
-            if (closed() || Math.abs(turned) >= WALL.CLOSE_MAX_TURN_DEG) return summary('pełny obieg');
+            if (closed() || Math.abs(t.turned) >= WALL.CLOSE_MAX_TURN_DEG) return summary('pełny obieg');
           }
         },
 
@@ -2597,9 +2650,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       //   Transport.send('W:...')            - komenda do pojazdu
       // Zmienione komórki pojawiają się na mapie same, bez wywoływania rysowania.
       const MapHandlers = {
-        // użytkownik uruchomił mapowanie
-        onStart() {
-          WallFinder.start();
+        // użytkownik uruchomił mapowanie albo jest ono wznawiane po przerwie w połączeniu (resume = true)
+        onStart(resume) {
+          WallFinder.start(resume);
         },
 
         // mapowanie zatrzymane, silniki dostały już komendę stop
@@ -2637,20 +2690,49 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       // LOGIKA: MAPA
       const MapControl = {
         running: false,
+        resumePending: false, // mapowanie przerwane utratą danych - zostanie wznowione, gdy wrócą
+        resumeFrom: null, stoppedAt: 0, // poza i czas w chwili przerwania
+        lastPose: null, lastPoseAt: 0,
 
-        setRunning(on, reason = 'user') {
+        setRunning(on, reason = 'user', resume = false) {
+          if (!on && reason !== 'connection') this.resumePending = false; // każde inne zatrzymanie anuluje wznowienie
           if (on === this.running) return;
           this.running = on;
           showMapRun(on);
           if (on) {
-            MapHandlers.onStart();
+            this.resumePending = false;
+            MapHandlers.onStart(resume);
             return;
           }
           if (Transport.open) drive('S', true); // pojazd nie może jechać dalej bez nadzoru strony
           MapHandlers.onStop(reason);
+          if (reason === 'connection') {
+            this.resumePending = true;
+            this.resumeFrom = this.lastPose;
+            this.stoppedAt = performance.now();
+            showWallStatus('Przerwa w połączeniu z pojazdem - mapowanie zostanie wznowione.');
+          }
+        },
+
+        // wznawia mapowanie przerwane utratą danych, gdy dane znów płyną, a poza nie zmieniła się podczas przerwy
+        tryResume() {
+          // dane muszą wrócić po przerwie (dataSince po stoppedAt) i nieść już nową pozę
+          if (!this.resumePending || !Transport.steadyFor(MAP_RESUME_DELAY_MS)) return;
+          if (Transport.dataSince <= this.stoppedAt || this.lastPoseAt < Transport.dataSince) return;
+          const a = this.resumeFrom, b = this.lastPose;
+          if (!a || Math.hypot(b.x - a.x, b.y - a.y) > MAP_RESUME_MAX_SHIFT_CM
+              || Math.abs(angDiff(b.theta, a.theta)) > MAP_RESUME_MAX_TURN_DEG) {
+            this.resumePending = false;
+            showWallStatus('Nie wznowiono mapowania: poza pojazdu zmieniła się podczas przerwy.');
+            return;
+          }
+          Dashboard.logSent('Mapowanie: wznowienie po przerwie w połączeniu');
+          this.setRunning(true, 'user', true);
         },
 
         pose(p) {
+          this.lastPose = p;
+          this.lastPoseAt = performance.now();
           mapView.setPose(p);
           if (this.running) MapHandlers.onPose(p);
         },
@@ -2807,7 +2889,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       radarLoop();
       mapLoop();
       Transport.connect();
-      setInterval(() => Transport.checkData(), 500);
+      setInterval(() => {
+        Transport.checkData();
+        MapControl.tryResume();
+      }, 500);
     </script>
   </body>
 </html>

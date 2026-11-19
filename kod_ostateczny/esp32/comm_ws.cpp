@@ -32,7 +32,11 @@ void wsLoop() {
 }
 
 void wsBroadcast(const char* text) {
-  webSocket.broadcastTXT(text);
+  // nieudane wysłanie oznacza zatrzymane połączenie TCP; bez rozłączenia każda kolejna linia
+  // blokowałaby loop() na czas timeoutu, a strona i tak nie dostałaby danych
+  for (uint8_t num = 0; num < WEBSOCKETS_SERVER_CLIENT_MAX; num++) {
+    if (webSocket.clientIsConnected(num) && !webSocket.sendTXT(num, text)) webSocket.disconnect(num);
+  }
 }
 
 bool wsHasClients() {

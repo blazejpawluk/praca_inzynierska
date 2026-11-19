@@ -6,6 +6,9 @@
 
   Korzysta z danych z enkoderów szczelinowych kół do wyznaczania przejechanej odległości
   oraz żyroskopu do wyznaczania kąta, o który obrócił się pojazd
+
+  Impulsy koła są liczone tylko podczas pracy jego silnika i krótkiego wybiegu,
+  a kąt tylko wtedy, gdy warunek ten spełnia co najmniej jedno koło
 */
 
 #pragma once
@@ -26,6 +29,10 @@ Pose positionGet();
 
 // zeruje bufory pomocnicze i czas ostatniej próbki (bez zmiany pozycji);
 void positionInit();
+
+// przywraca pozę zapisaną przed resetem mikrokontrolera; zwraca false po włączeniu zasilania
+// (pamięć nie zawiera wtedy poprawnego zapisu) - poza pozostaje wtedy (0, 0, 0)
+bool positionRestore();
 
 // ustawia pozycję i kierunek na (0, 0, 0)
 void positionReset();

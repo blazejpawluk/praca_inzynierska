@@ -12,6 +12,7 @@
     - A:MPU:<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<temp> - MPU6050 [mg, 0.01 stopnia/s, 0.01 stopnia Celsjusza] (liczby całkowite)
     - A:POS:<x>,<y>,<angle>,<velocity> - pozycja [mm, mm, 0.01 stopnia, mm/s] (liczby całkowite)
     - A:CONNECTION - żądanie statusu połączenia z komputerem
+    - A:INIT:<reason>,<attempt> - nieudana inicjalizacja MPU6050 [I2C BUS STUCK, I2C TIMEOUT, NO RESPONSE lub NO GYRO DATA, numer próby]
 
   Dane są wysyłane w cyklach (ENC, DIST, MPU, POS) po jednej wiadomości na obieg loop(),
   tylko gdy mieszczą się w buforze nadawczym, więc wysyłanie nie blokuje programu.
@@ -19,6 +20,7 @@
 
 #pragma once
 
+#include <Arduino.h>
 #include "position.h"
 
 // rozpoczyna nowy cykl wysyłania (przy wyłączonym radarze także pomiar sonaru);
@@ -33,6 +35,9 @@ void commSendNext();
 
 // zapamiętuje wynik pomiaru sonaru do wysłania jako A:DIST
 void commQueueDist(int angle, unsigned int mm, const Pose& pose);
+
+// wysyła A:INIT z przyczyną nieudanej inicjalizacji MPU6050
+void commSendInitError(const __FlashStringHelper* reason, unsigned int attempt);
 
 // wysyła A:CONNECTION najwyżej co CONNECTION_INTERVAL_MS (bez blokowania)
 void commRequestConnection();

@@ -61,17 +61,33 @@ static void handleI2cFault() {
   commFlushInput(); // bufor UART mógł się przepełnić podczas odzyskiwania
 }
 
-// inicjalizuje MPU6050, ponawiając próby aż do skutku
+// konfiguruje i kalibruje MPU6050, ponawiając próby aż do skutku;
+// przyczyna błędu trafia na LCD oraz do A:INIT (gdy magistrala jest zablokowana, LCD jej nie pokaże)
 static void initMpu() {
-  lcdPrint(LCD_ROW_INFO, F("GYRO CALIBRATION"));
-  while (!mpuInit()) {
-    lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
-    lcdPrint(LCD_ROW_INFO, F("RETRYING"));
-    delay(I2C_RETRY_MS);
+  unsigned int attempt = 1;
 
-    if (i2cRecover()) lcdRecover();
+  while (true) {
     lcdPrint(LCD_ROW_STATUS, F("INITIALIZATION"));
     lcdPrint(LCD_ROW_INFO, F("GYRO CALIBRATION"));
+
+    bool configured = mpuConfigure();
+    if (configured && mpuCalibrate(MPU_CALIB_SAMPLES)) return;
+
+    // stan awarii trzeba odczytać przed i2cRecover(), które go kasuje
+    bool timedOut = !i2cReady();
+    bool released = i2cRecover();
+    if (released) lcdRecover();
+
+    const __FlashStringHelper* reason = !released ? F("I2C BUS STUCK")
+                                      : timedOut ? F("I2C TIMEOUT")
+                                      : !configured ? F("NO RESPONSE")
+                                      : F("NO GYRO DATA");
+    lcdPrint(LCD_ROW_STATUS, F("MPU6050 ERROR"));
+    lcdPrint(LCD_ROW_INFO, reason);
+    commSendInitError(reason, attempt++);
+    delay(I2C_RETRY_MS);
+
+    if (!i2cReady() && i2cRecover()) lcdRecover();
   }
 }
 
@@ -139,6 +155,9 @@ static void runDisconnected() {
 }
 
 void setup() {
+  // po resecie (np. spadku napięcia) pojazd kontynuuje w tym samym układzie współrzędnych
+  positionRestore();
+
   // magistrala I2C wspólna dla LCD i MPU6050
   i2cInit();
 
@@ -153,7 +172,7 @@ void setup() {
   sonarInit();
   interruptsInit();
 
-  // mpuInit() kalibruje też żyroskop - pojazd nie może się wtedy ruszać
+  // initMpu() kalibruje też żyroskop - pojazd nie może się wtedy ruszać
   initMpu();
 
   // oczekiwanie na połączenie
