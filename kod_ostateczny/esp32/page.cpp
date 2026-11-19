@@ -302,6 +302,8 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       #map.drag{cursor:grabbing}
       .map-legend{background:rgba(6,7,11,.82);border-radius:5px;padding:5px 8px}
       .map-legend span::before{border-radius:1px;box-shadow:none;outline:1px solid var(--dim)}
+      .map-legend span.wall::before{width:12px;height:0;background:none;outline:0;border-top:3px solid var(--c);vertical-align:3px}
+      .map-legend span.wall.cur::before{border-top-style:dashed}
       .map-view{display:grid;grid-template-columns:auto auto 1fr 1fr;gap:6px;flex-shrink:0}
       .map-view .btn,.map-btns .btn{--c:var(--lime)}
       #map-follow.on{color:var(--lime);border-color:var(--lime)}
@@ -644,6 +646,8 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                   <span style="--c:#808080">nieznana</span>
                   <span style="--c:#000">zajęta</span>
                   <span style="--c:var(--magenta)">pojazd</span>
+                  <span class="wall" style="--c:var(--cyan)">ściana</span>
+                  <span class="wall cur" style="--c:var(--amber)">bieżąca ściana</span>
                 </div>
               </div>
               <div class="map-view">
@@ -1358,6 +1362,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         fitted: false, follow: false, stale: true,
         pose: null, hover: null,
         marks: [], // wykryte granice ściany { x, y } [cm]
+        walls: [], // dopasowane ściany na znanym odcinku { a, b, current } [cm]
 
         sx(x) { return this.w / 2 + (x - this.vx) * this.zoom; },
         sy(y) { return this.h / 2 - (y - this.vy) * this.zoom; },
@@ -1411,6 +1416,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
 
         setMarks(marks) {
           this.marks = marks;
+          this.stale = true;
+        },
+
+        setWalls(walls) {
+          this.walls = walls;
           this.stale = true;
         },
 
@@ -1489,6 +1499,24 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           for (let y = Math.ceil(Math.max(originY, this.wy(h)) / step) * step; y <= Math.min(-originY, this.wy(0)); y += step) {
             if (this.sy(y) < h - 18) c.fillText(y / 100 + ' m', 5, this.sy(y) - 3);
           }
+
+          // dopasowane ściany: odcinek prostej na zakresie, w którym ściana jest znana
+          c.lineCap = 'round';
+          for (const wl of this.walls) {
+            c.beginPath();
+            c.moveTo(this.sx(wl.a.x), this.sy(wl.a.y));
+            c.lineTo(this.sx(wl.b.x), this.sy(wl.b.y));
+            c.setLineDash([]);
+            c.strokeStyle = '#06070b';
+            c.lineWidth = 5;
+            c.stroke();
+            c.setLineDash(wl.current ? [8, 5] : []);
+            c.strokeStyle = wl.current ? '#ffb300' : '#00e5ff';
+            c.lineWidth = 3;
+            c.stroke();
+          }
+          c.setLineDash([]);
+          c.lineCap = 'butt';
 
           // granice ściany
           c.fillStyle = '#b4ff1f';
@@ -2038,24 +2066,24 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       };
 
       // LOGIKA: WYKRYWANIE ŚCIANY
-      // Pojazd dojeżdża do przeszkody, ustawia się prostopadle do ściany (środek łuku pomiarów),
-      // a potem przesuwa się wzdłuż niej w prawo. Na końcu ściany przechodzi do następnej i tak
-      // obchodzi kolejne ściany, aż wykona pełny obieg i wróci w pobliże miejsca startu.
+      // Pojazd dojeżdża do przeszkody, ustawia się prostopadle do ściany, a potem przesuwa się wzdłuż niej
+      // w prawo. Ściany wyznacza na siatce zajętości (transformata Hougha i regresja), więc każdy skan
+      // poprawia dopasowanie. Na końcu ściany wybiera z mapy najbardziej prawdopodobną kolejną ścianę
+      // i tak obchodzi pomieszczenie, aż rozpozna pierwszą ścianę (pełny obieg).
       // Używa tylko W:MOTOR, W:SERVO, W:RADAR i W:RADAROFF; obroty i odległości kontroluje na podstawie A:POS.
       const WALL = {
-        STOP_CM: 50, // odległość od przeszkody kończąca dojazd
-        STEP_CM: 20, // długość kroku wzdłuż ściany
-        BLOCK_CM: 20, // przeszkoda przerywająca krok
+        SIDE: -1, // kierunek obchodu: -1 = w prawo
+        STOP_CM: 50, // docelowa odległość czujnika od ściany
+        STEP_MIN_CM: 20, // krok, gdy dalszy ciąg ściany nie jest jeszcze widoczny na mapie
+        STEP_MAX_CM: 60,
+        STEP_MARGIN_CM: 15, // krok kończy się tyle przed końcem ściany widocznej na mapie
+        BLOCK_CM: 20, // przeszkoda przerywająca jazdę
         SEARCH_MAX_CM: 400, // najdłuższy dojazd do przeszkody
         MAX_WALLS: 16, // limit bezpieczeństwa: liczba ścian
-        MAX_PATH_CM: 4000, // limit bezpieczeństwa: droga wzdłuż ścian
-        CLOSE_TURN_DEG: 330, // suma obrotów oznaczająca pełny obieg
-        CLOSE_MAX_TURN_DEG: 450, // po takiej sumie obrotów obieg kończy się także bez trafienia w start
-        CLOSE_CM: 60, // odległość od startu kończąca obieg
+        MAX_PATH_CM: 4000, // limit bezpieczeństwa: przejechana droga
+        CLOSE_MAX_TURN_DEG: 450, // po takiej sumie obrotów obieg kończy się także bez rozpoznania pierwszej ściany
         SEARCH_TURN_DEG: 120, // obrót przy szukaniu ściany poza zakresem skanu
         CORNER_PAST_CM: 30, // o ile minąć linię kończącej się ściany przy narożniku wypukłym
-        WALL_ARC_MIN_DEG: 20, // węższy łuk to zwykle tylko krawędź ściany (szerokość wiązki)
-        REALIGN_STEPS: 4, // co tyle kroków auto ponownie ustawia się do ściany (usuwa dryf kąta)
         BRAKE_CM: 2, // zapas na wybieg po wyłączeniu silników
         DRIVE_LAG_S: 0.2, // opóźnienie pozy i wybieg uwzględniane przy hamowaniu
         DIST_TOL_CM: 3, // dokładność ustawienia odległości od ściany
@@ -2063,25 +2091,50 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         FRONT_PINGS: 5, // liczba pomiarów przy sprawdzaniu odległości na postoju
         MAX_RANGE_CM: 200, // dalszych pomiarów nie używamy (rozdz. 4.2.3)
         SENSOR_OFFSET_CM: 15, // odległość a sonaru od osi pojazdu (równ. 3.4) - do zmierzenia
-        SERVO_TRIM_DEG: 0, // o ile rzeczywisty kierunek sonaru przy 90 st. odbiega od osi pojazdu (+ = w lewo)
+        // skan zawsze idzie od mniejszego kąta do większego, więc luz serwa daje stały błąd kierunku,
+        // który trzeba tu skompensować (+ = w lewo); kalibracja: środek łuku płaskiej ściany na wprost = 90 st.
+        SERVO_TRIM_DEG: 0,
 
-        SCAN_STEP: 5, // krok skanu zgrubnego [st.]
-        FINE_STEP: 2, // krok skanu dokładnego [st.]
-        FINE_SWEEPS: 2, // przejścia w obie strony znoszą wpływ luzu serwa
-        FINE_MARGIN_DEG: 15, // zapas skanu dokładnego poza krawędziami łuku
+        SCAN_STEP: 2, // krok skanu [st.]; jedno przejście
+        TRACE_BACK_DEG: 30, // skan przy obchodzie: kierunek jazdy, ściana i tyle stopni w drugą stronę
         SCAN_INTERVAL_MS: 150,
         SWEEP_MS: 600, // dojazd serwa na początek skanu
         SERVO_MS: 350, // ustawienie serwa na wprost
         SETTLE_MS: 400, // uspokojenie pojazdu po zatrzymaniu
+        FRONT_DEG: 4, // pomiary skanu w tym zakresie od osi dają odległość na wprost
 
-        ARC_TOL_CM: 5, // największa różnica sąsiednich pomiarów łuku
-        ARC_MAX_JUMP_DEG: 10, // największy odstęp sąsiednich pomiarów łuku
-        ARC_MIN_POINTS: 3,
-        ARC_MIN_SPAN_DEG: 10,
-        ARC_MAX_TURNS: 4, // najwięcej obrotów przy szukaniu granic łuku
-        ALIGN_TOL_DEG: 2, // dopuszczalna korekta w ostatnim skanie dokładnym
-        ALIGN_TRIES: 4,
-        SAME_TOL_CM: 8, // „mniej więcej taka sama” odległość od ściany
+        // ściany na mapie
+        L_WALL: 1.5, // komórka pewnie zajęta (co najmniej dwa trafienia)
+        INLIER_CELLS: 1.5, // komórki tak blisko prostej należą do ściany
+        MIN_EVIDENCE: 10, // najmniejsza suma l komórek ściany
+        GAP_CM: 10, // większa przerwa dzieli ścianę na odcinki
+        WALL_MIN_CM: 15, // krótszy odcinek to zwykle tylko krawędź
+        REFINE_MAX_DEG: 3, // największa poprawka kąta z regresji względem transformaty Hougha
+        REFINE_BAND_CELLS: 1, // pas drugiego przejścia regresji
+        CAND_LINES: 5, // najwięcej prostych wyznaczanych z jednego fragmentu mapy
+        FIT_ALONG_CM: 80, // okno dopasowania bieżącej ściany (ogranicza wpływ dryfu odometrii)
+        FIT_BAND_CM: 30, // komórki dalej od poprzedniego położenia ściany nie są brane pod uwagę
+        FIT_ANG_TOL_DEG: 15, // największa zmiana kierunku ściany między dopasowaniami
+        FIT_DIST_TOL_CM: 15, // największa zmiana odległości ściany między dopasowaniami
+        AHEAD_CM: 150, // zasięg szukania ściany przed pojazdem
+        COVER_CM: 5, // ściana kończy się, gdy pojazd minie jej koniec o więcej
+        SAME_TOL_CM: 8, // ściana kończy się także, gdy odległość na wprost różni się od wynikającej z mapy o więcej
+        FACE_RESCAN_DEG: 45, // ściana dalej od osi mogła nie zmieścić się w skanie: kolejny skan przodem do niej
+        FACE_RESCANS: 2,
+        ALIGN_TOL_DEG: 2, // mniejsza różnica kursu i kierunku ściany nie wymaga obrotu
+
+        // kolejna ściana
+        NEXT_RADIUS_CM: 150, // zasięg szukania wokół końca bieżącej ściany
+        NEXT_DIST_CM: 60, // skala kary za odległość od końca bieżącej ściany
+        NEXT_BEHIND_CM: 50, // ściany leżące w całości dalej za końcem bieżącej są pomijane
+        NEXT_TRIES: 3, // liczba sprawdzanych kandydatów po jednym skanie
+        EXCLUDE_CM: 7, // komórki tak blisko już obchodzonej ściany nie tworzą nowych
+        CORNER_WINDOW_CM: 100, // zasięg szukania ściany w poprzek kierunku jazdy (narożnik wklęsły)
+        CORNER_SEG_CM: 30, // tor może przecinać przedłużenie widocznego odcinka o tyle
+        CLEAR_CM: 20, // pół szerokości toru sprawdzanego na mapie
+        CLOSE_ANG_DEG: 5, // rozpoznanie pierwszej ściany: zgodność kierunku
+        CLOSE_DIST_CM: 15, // i odległości od początku układu
+        CLOSE_GAP_CM: 50, // zapas przy sprawdzaniu, czy koniec ostatniej ściany leży przed początkiem pierwszej
 
         TURN_SLOW_DEG: 25, // poniżej tego błędu obrót zwalnia
         TURN_TOL_DEG: 1,
@@ -2101,79 +2154,188 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       const WALL_SPEED_DEFAULT = { drive: 220, turn: 220, turnSlow: 200 }; // [PWM]
       const wallSpeeds = { ...WALL_SPEED_DEFAULT }; // ustawiane na stronie, działają od razu
       const WALL_ABORT = new Error('przerwano');
-      const WALL_LOST = new Error('nie wykryto łuku');
+      const WALL_AXIS_CM = WALL.STOP_CM + WALL.SENSOR_OFFSET_CM; // docelowa odległość osi pojazdu od ściany
+      const WALL_ANGLES = Array.from({ length: 180 }, (_, k) => k); // kierunki normalnej w transformacie Hougha
       const angDiff = (a, b) => ((a - b + 540) % 360 + 360) % 360 - 180; // a - b w zakresie [-180, 180)
+      const lineDiff = (a, b) => { const d = angDiff(a, b); return d >= 90 ? d - 180 : d < -90 ? d + 180 : d; }; // różnica kierunków prostych
       const median = v => [...v].sort((a, b) => a - b)[v.length >> 1];
       const usableDist = d => d != null && d <= WALL.MAX_RANGE_CM;
-      const mean = v => v.reduce((a, b) => a + b, 0) / v.length;
       const sonarBearing = m => m.theta + m.servo - 90 + WALL.SERVO_TRIM_DEG; // kierunek wiązki na mapie
 
-      // nanosi pomiar na siatkę (rozdz. 3.8): komórki stożka przed łukiem są wolne, a na łuku zajęte
+      // wektory {x, y} [cm]
+      const vDir = deg => ({ x: Math.cos(rad(deg)), y: Math.sin(rad(deg)) });
+      const vDot = (a, b) => a.x * b.x + a.y * b.y;
+      const vAdd = (a, b, k = 1) => ({ x: a.x + k * b.x, y: a.y + k * b.y }); // a + k * b
+      const vDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+      function segDist(p, a, b) { // odległość punktu od odcinka
+        const ab = vAdd(b, a, -1), l2 = vDot(ab, ab);
+        const k = l2 ? clamp(vDot(vAdd(p, a, -1), ab) / l2, 0, 1) : 0;
+        return vDist(p, vAdd(a, ab, k));
+      }
+
+      // Ściana to prosta { phi, rho }: punkty p spełniające p . n = rho, gdzie n = vDir(phi) wskazuje od pojazdu
+      // do ściany (phi = kurs przodem do ściany). Odcinek ściany to dodatkowo { lo, hi }: zakres współrzędnej s
+      // wzdłuż ściany, rosnącej w kierunku obchodu.
+      const wallAlong = w => vDir(w.phi + WALL.SIDE * 90);
+      const wallS = (w, p) => vDot(p, wallAlong(w));
+      const wallPoint = (w, s) => vAdd(vAdd({ x: 0, y: 0 }, vDir(w.phi), w.rho), wallAlong(w), s); // punkt ściany o współrzędnej s
+      const wallGap = (w, p) => w.rho - vDot(p, vDir(w.phi)); // odległość od ściany (dodatnia po stronie pojazdu)
+      const wallEnds = w => [wallPoint(w, w.lo), wallPoint(w, w.hi)];
+      // zwrot normalnej taki, aby punkt p (pojazd) leżał przed ścianą
+      const wallOrient = (w, p) => wallGap(w, p) >= 0 ? w : { ...w, phi: w.phi + 180, rho: -w.rho };
+      function wallCross(a, b) { // punkt przecięcia prostych albo null dla równoległych
+        const n = vDir(a.phi), m = vDir(b.phi), det = n.x * m.y - n.y * m.x;
+        if (Math.abs(det) < 1e-6) return null;
+        return { x: (a.rho * m.y - b.rho * n.y) / det, y: (n.x * b.rho - m.x * a.rho) / det };
+      }
+      function wallSameLine(a, b) {
+        if (Math.abs(angDiff(a.phi, b.phi)) > 90) b = { ...b, phi: b.phi + 180, rho: -b.rho };
+        return Math.abs(angDiff(a.phi, b.phi)) <= WALL.CLOSE_ANG_DEG && Math.abs(a.rho - b.rho) <= WALL.CLOSE_DIST_CM;
+      }
+      const sensorPos = p => vAdd(p, vDir(p.theta), WALL.SENSOR_OFFSET_CM);
+
+      // nanosi pomiar na siatkę (rozdz. 3.8): komórki stożka przed łukiem są wolne, a na łuku zajęte.
+      // Brak echa albo echo dalej niż MAX_RANGE_CM oznacza wolny stożek, ale tylko tam, gdzie już widzieliśmy
+      // wolną przestrzeń: komórki z przewagą „wolna”, w każdym kierunku do pierwszej komórki z przewagą „zajęta”
+      // (najwyżej do MAX_RANGE_CM). Echa brakuje też od ściany skośnej do wiązki i przy zgubionym impulsie, więc
+      // taki pomiar nie zmienia komórek nieznanych ani nie ściera ścian widocznych na mapie
       function mapAddMeasurement(m) {
-        if (!usableDist(m.dist)) return;
-        const g = occGrid, half = g.cell / 2, r = m.dist + half, beam = sonarBearing(m);
-        const sx = m.x + WALL.SENSOR_OFFSET_CM * Math.cos(rad(m.theta));
-        const sy = m.y + WALL.SENSOR_OFFSET_CM * Math.sin(rad(m.theta));
-        for (let j = g.rowOf(sy - r); j <= g.rowOf(sy + r); j++) {
-          for (let i = g.colOf(sx - r); i <= g.colOf(sx + r); i++) {
-            const dx = g.cellX(i) - sx, dy = g.cellY(j) - sy, rho = Math.hypot(dx, dy);
-            if (rho > r || Math.abs(angDiff(Math.atan2(dy, dx) * 180 / Math.PI, beam)) > BEAM_DEG / 2) continue;
-            if (rho < m.dist - half) g.markFree(i, j);
-            else g.markOccupied(i, j);
+        const echo = usableDist(m.dist), g = occGrid, half = g.cell / 2, beam = sonarBearing(m), s = sensorPos(m);
+        const r = echo ? m.dist + half : WALL.MAX_RANGE_CM, cells = [];
+        for (let j = g.rowOf(s.y - r); j <= g.rowOf(s.y + r); j++) {
+          for (let i = g.colOf(s.x - r); i <= g.colOf(s.x + r); i++) {
+            const dx = g.cellX(i) - s.x, dy = g.cellY(j) - s.y, rho = Math.hypot(dx, dy);
+            const off = angDiff(Math.atan2(dy, dx) * 180 / Math.PI, beam);
+            if (g.inBounds(i, j) && rho <= r && Math.abs(off) <= BEAM_DEG / 2) cells.push({ i, j, rho, off });
           }
         }
+        if (echo) {
+          for (const c of cells) {
+            if (c.rho < m.dist - half) g.markFree(c.i, c.j);
+            else g.markOccupied(c.i, c.j);
+          }
+          return;
+        }
+        // brak echa: najbliższa komórka z przewagą „zajęta” w każdym kierunku stożka (co 1 st.)
+        const bin = c => Math.round(c.off + BEAM_DEG / 2), reach = new Array(BEAM_DEG + 1).fill(r);
+        for (const c of cells) if (mapWeight(g.index(c.i, c.j)) > 0) reach[bin(c)] = Math.min(reach[bin(c)], c.rho);
+        for (const c of cells) if (c.rho < reach[bin(c)] - g.cell && mapWeight(g.index(c.i, c.j)) < 0) g.markFree(c.i, c.j);
       }
 
-      // pomiary jako mapa: numer kierunku (co step st. względem reference) -> odległość lub null
-      function wallBins(pts, reference, step, bins = new Map()) {
-        for (const m of pts) bins.set(Math.round(angDiff(sonarBearing(m), reference) / step), m.dist);
-        return bins;
+      // nadwyżka l komórki k nad l_0: wartość dodatnia oznacza przewagę pomiarów „zajęta”
+      const mapWeight = k => (occGrid.cells[k] - occGrid.raw.l0) * MAP_L_STEP;
+      // próg komórki pewnie zajętej; niższy, gdy użytkownik ustawił małe l_max
+      const mapWallL = () => Math.min(WALL.L_WALL, .8 * (occGrid.params.lMax - occGrid.params.l0));
+
+      // komórki z przewagą „zajęta” w kole (c, r), spełniające keep(x, y); waga = nadwyżka l
+      function mapPoints(c, r, keep) {
+        const g = occGrid, pts = [];
+        const i1 = Math.min(g.cols - 1, g.colOf(c.x + r)), j1 = Math.min(g.rows - 1, g.rowOf(c.y + r));
+        for (let j = Math.max(0, g.rowOf(c.y - r)); j <= j1; j++) {
+          for (let i = Math.max(0, g.colOf(c.x - r)); i <= i1; i++) {
+            const w = mapWeight(g.index(i, j));
+            if (w <= 0) continue;
+            const x = g.cellX(i), y = g.cellY(j);
+            if (Math.hypot(x - c.x, y - c.y) <= r && (!keep || keep(x, y))) pts.push({ x, y, w });
+          }
+        }
+        return pts;
       }
 
-      // łuki: ciągi sąsiednich kierunków o zbliżonej odległości; środek to średni kierunek
-      // pomiarów zgodnych z medianą łuku, więc pojedyncze błędy na krawędziach go nie przesuwają
-      function wallFindArcs(bins, step) {
-        const keys = [...bins.keys()].sort((a, b) => a - b), arcs = [];
+      // czy tor a-b (pas o pół szerokości CLEAR_CM) omija komórki pewnie zajęte
+      function mapPathClear(a, b) {
+        const g = occGrid, r = WALL.CLEAR_CM, lim = mapWallL();
+        const i1 = Math.min(g.cols - 1, g.colOf(Math.max(a.x, b.x) + r)), j1 = Math.min(g.rows - 1, g.rowOf(Math.max(a.y, b.y) + r));
+        for (let j = Math.max(0, g.rowOf(Math.min(a.y, b.y) - r)); j <= j1; j++) {
+          for (let i = Math.max(0, g.colOf(Math.min(a.x, b.x) - r)); i <= i1; i++) {
+            if (mapWeight(g.index(i, j)) >= lim && segDist({ x: g.cellX(i), y: g.cellY(j) }, a, b) <= r) return false;
+          }
+        }
+        return true;
+      }
+
+      // transformata Hougha z wagami: najsilniejsza prosta (kierunki normalnej z listy angles [st.]);
+      // wynik prostej to suma wag w pasie trzech komórek
+      function houghPeak(pts, c, angles) {
+        const cell = occGrid.cell;
+        let maxR = 0;
+        for (const p of pts) maxR = Math.max(maxR, Math.hypot(p.x - c.x, p.y - c.y));
+        const off = Math.ceil(maxR / cell) + 2, acc = new Float32Array(2 * off + 1);
+        let best = null;
+        for (const a of angles) {
+          const n = vDir(a);
+          acc.fill(0);
+          for (const p of pts) acc[Math.round(((p.x - c.x) * n.x + (p.y - c.y) * n.y) / cell) + off] += p.w;
+          for (let k = 1; k < acc.length - 1; k++) {
+            const score = acc[k - 1] + acc[k] + acc[k + 1];
+            if (!best || score > best.score) best = { phi: a, rho: (k - off) * cell + vDot(c, n), score };
+          }
+        }
+        return best;
+      }
+
+      // dokładniejsza prosta: regresja ortogonalna (z wagami) komórek leżących blisko prostej z transformaty;
+      // łuk z jednego skanu jest symetryczny względem prostopadłej do ściany, więc daje właściwy kierunek.
+      // Drugie przejście w węższym pasie pomija komórki odstające (np. narożnik na skraju okna)
+      function refineLine(pts, line, band) {
+        const fit = (l, bd) => {
+          const n = vDir(l.phi), inl = pts.filter(p => Math.abs(vDot(p, n) - l.rho) <= bd);
+          let sw = 0, mx = 0, my = 0;
+          for (const p of inl) {
+            sw += p.w;
+            mx += p.w * p.x;
+            my += p.w * p.y;
+          }
+          if (!sw) return l;
+          mx /= sw;
+          my /= sw;
+          let sxx = 0, syy = 0, sxy = 0;
+          for (const p of inl) {
+            const dx = p.x - mx, dy = p.y - my;
+            sxx += p.w * dx * dx;
+            syy += p.w * dy * dy;
+            sxy += p.w * dx * dy;
+          }
+          let phi = Math.atan2(2 * sxy, sxx - syy) * 90 / Math.PI + 90; // normalna do kierunku największego rozrzutu
+          if (Math.abs(lineDiff(phi, line.phi)) > WALL.REFINE_MAX_DEG) phi = line.phi; // za mało punktów na regresję
+          if (Math.abs(angDiff(phi, line.phi)) > 90) phi += 180; // zachowuje zwrot z transformaty
+          const m = vDir(phi);
+          return { phi, rho: mx * m.x + my * m.y };
+        };
+        return fit(fit(line, band), WALL.REFINE_BAND_CELLS * occGrid.cell);
+      }
+
+      // odcinki prostej: ciągi komórek pewnie zajętych z przerwami najwyżej GAP_CM; ev = suma wag
+      function lineSegments(line, pts) {
+        const lim = mapWallL(), t = wallAlong(line);
+        const ss = pts.filter(p => p.w >= lim).map(p => ({ s: vDot(p, t), w: p.w })).sort((a, b) => a.s - b.s);
+        const segs = [];
         let cur = null;
-        for (const k of keys) {
-          const d = bins.get(k);
-          if (!usableDist(d)) continue;
-          const fits = cur && (k - cur.ks.at(-1)) * step <= WALL.ARC_MAX_JUMP_DEG && Math.abs(d - cur.ds.at(-1)) <= WALL.ARC_TOL_CM
-            && Math.max(d, ...cur.ds) - Math.min(d, ...cur.ds) <= 2 * WALL.ARC_TOL_CM;
-          if (fits) {
-            cur.ks.push(k);
-            cur.ds.push(d);
-          } else {
-            cur = { ks: [k], ds: [d] };
-            arcs.push(cur);
-          }
+        for (const q of ss) {
+          if (cur && q.s - cur.hi <= WALL.GAP_CM) {
+            cur.hi = q.s;
+            cur.ev += q.w;
+          } else segs.push(cur = { phi: line.phi, rho: line.rho, lo: q.s, hi: q.s, ev: q.w });
         }
-        return arcs.filter(a => a.ds.length >= WALL.ARC_MIN_POINTS && (a.ks.at(-1) - a.ks[0]) * step >= WALL.ARC_MIN_SPAN_DEG).map(a => {
-          const dist = median(a.ds), inliers = a.ks.filter((_, i) => Math.abs(a.ds[i] - dist) <= WALL.ARC_TOL_CM);
-          return {
-            lo: a.ks[0] * step, hi: a.ks.at(-1) * step, // krawędzie łuku [st.] względem reference
-            center: mean(inliers) * step,
-            dist,
-            openLow: a.ks[0] <= keys[0], // łuk dochodzi do krawędzi zbadanego zakresu
-            openHigh: a.ks.at(-1) >= keys.at(-1),
-          };
-        });
+        return segs;
       }
 
-      // wybiera łuk obejmujący kierunek anchor, a jeśli takiego nie ma - najszerszy (krawędzie ścian
-      // dają tylko wąskie łuki), przy równej szerokości najbliższy
-      function wallPickArc(arcs, anchor) {
-        const margin = BEAM_DEG / 2;
-        const hit = arcs.filter(a => a.lo - margin <= anchor && anchor <= a.hi + margin);
-        if (hit.length) return hit.reduce((b, a) => Math.abs(a.center - anchor) < Math.abs(b.center - anchor) ? a : b);
-        const width = a => a.hi - a.lo;
-        return arcs.length ? arcs.reduce((b, a) => width(a) > width(b) || (width(a) === width(b) && a.dist < b.dist) ? a : b) : null;
-      }
-
-      // odległość na wprost: mediana z kierunków +/-5 st., o ile co najmniej dwa mają echo
-      function wallFrontDist(bins, step) {
-        const ds = [...bins].filter(([k, d]) => Math.abs(k * step) <= 5 && usableDist(d)).map(([, d]) => d);
-        return ds.length >= 2 ? median(ds) : null;
+      // ściany w kole (c, r): kolejne najsilniejsze proste (komórki prostej są usuwane przed szukaniem
+      // następnej), zwrócone przodem do pojazdu w pozie pose; wynik to odcinki co najmniej minLen długie
+      function mapFindWalls(c, r, keep, angles, maxLines, pose, minLen) {
+        const band = WALL.INLIER_CELLS * occGrid.cell, out = [];
+        let pts = mapPoints(c, r, keep);
+        for (let k = 0; k < maxLines && pts.length; k++) {
+          const peak = houghPeak(pts, c, angles);
+          if (!peak || peak.score < WALL.MIN_EVIDENCE) break;
+          const line = wallOrient(refineLine(pts, peak, band), pose), n = vDir(line.phi);
+          const near = p => Math.abs(vDot(p, n) - line.rho) <= band;
+          const inl = pts.filter(near);
+          if (!inl.length) break;
+          pts = pts.filter(p => !near(p));
+          for (const s of lineSegments(line, inl)) if (s.hi - s.lo >= minLen && s.ev >= WALL.MIN_EVIDENCE) out.push(s);
+        }
+        return out;
       }
 
       const showWallStatus = t => $('#map-status').textContent = t;
@@ -2186,10 +2348,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         pulseMsPerDeg: WALL.PULSE_MS_PER_DEG, pulseDrop: 0, // czas i obniżenie PWM impulsu, dobierane w trakcie pracy
         scanState: null,
         moving: false, nearCount: 0, lastFront: null,
-        heading: 0, refDist: 0, // kierunek na ścianę i ostatnia poprawna odległość od niej
+        heading: 0, refDist: 0, // kierunek na ścianę i ostatnia zmierzona odległość od niej
         wallDist: 0, // docelowa odległość od bieżącej ściany
+        wall: null, // bieżąca ściana (odcinek)
+        walls: [], // obchodzone już ściany { phi, rho, a, b, src } - a, b: końce odcinka, src: ściana przed zapisaniem
         marks: [],
-        trace: null, // postęp obchodu ścian { start, turned, walls, path, n }; zachowany do wznowienia
+        trace: null, // postęp obchodu ścian { turned, walls, path, n }; zachowany do wznowienia
 
         // resume: wznowienie po przerwie w połączeniu - obchód jest kontynuowany, jeśli już się zaczął
         start(resume = false) {
@@ -2198,8 +2362,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           if (!resume) {
             this.marks = [];
             this.trace = null;
+            this.wall = null;
+            this.walls = [];
           }
           mapView.setMarks([...this.marks]);
+          this.showWalls();
           this.run(++this.runId, resume && this.trace !== null);
         },
 
@@ -2234,17 +2401,21 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
               showWallStatus('Wznowienie: ustawianie do ściany...');
               const previous = this.heading;
               await this.turnTo(previous);
-              await this.alignToWall(WALL.WALL_ARC_MIN_DEG);
+              const traced = this.wall;
+              if (!await this.faceWall(traced)) throw new Error('nie odnaleziono ściany po wznowieniu');
+              this.wall = { ...this.wall, lo: Math.min(traced.lo, this.wall.lo), hi: Math.max(traced.hi, this.wall.hi) };
+              this.showWalls();
               await this.adjustDistance();
               this.trace.turned += angDiff(this.heading, previous);
             } else {
               showWallStatus('Dojazd do przeszkody...');
               const found = await this.driveForward(this.pose.theta, WALL.SEARCH_MAX_CM, WALL.STOP_CM);
               if (!found.blocked) throw new Error('nie znaleziono przeszkody');
-              await this.alignToWall();
+              if (!await this.findWall()) throw new Error('nie wykryto ściany');
+              this.refDist = await this.measureFront();
               this.wallDist = Math.min(WALL.STOP_CM, this.refDist);
             }
-            showWallStatus(await this.traceWalls(-1));
+            showWallStatus(await this.traceWalls());
           } catch (e) {
             if (e === WALL_ABORT) return;
             if (Transport.stale()) {
@@ -2258,6 +2429,16 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             this.stop('finished');
             MapControl.setRunning(false, reason);
           }
+        },
+
+        // obchodzone już ściany i bieżąca ściana na mapie
+        showWalls() {
+          const ws = this.walls.map(w => ({ a: w.a, b: w.b, current: false }));
+          if (this.wall && this.walls.at(-1)?.src !== this.wall) {
+            const [a, b] = wallEnds(this.wall);
+            ws.push({ a, b, current: true });
+          }
+          mapView.setWalls(ws);
         },
 
         // ---- zdarzenia z telemetrii ----
@@ -2280,20 +2461,16 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           }
         },
 
-        // przejście kończy się na krańcu zakresu albo przy zawróceniu serwa (gdy zgubiono ostatni punkt)
+        // skan kończy się na krańcu zakresu albo przy zawróceniu serwa (gdy zgubiono ostatni punkt)
         onScanPoint(m) {
           const s = this.scanState, last = s.pts.at(-1);
           if (last && m.servo === last.servo) return;
-          const forward = !last || (m.servo - last.servo) * s.dir > 0;
-          if (forward) {
+          if (!last || m.servo > last.servo) {
             s.pts.push(m);
-            if (s.record) mapAddMeasurement(m);
-            if (m.servo * s.dir < (s.dir > 0 ? s.to : s.from) * s.dir) return;
+            mapAddMeasurement(m);
+            if (m.servo < s.to) return;
           }
-          s.done.push(s.pts);
-          s.pts = [m];
-          s.dir = -s.dir;
-          if (s.done.length >= s.sweeps && this.waiter && this.waiter.kind === 'scan') this.finishWait(s.done);
+          if (this.waiter && this.waiter.kind === 'scan') this.finishWait(s.pts);
         },
 
         // ---- oczekiwanie ----
@@ -2439,85 +2616,173 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           throw new Error('nie udało się ustawić kursu');
         },
 
+        // przejazd przez kolejne punkty trasy; false, gdy przeszkoda spoza mapy przerwała jazdę
+        async follow(route) {
+          for (const q of route) {
+            const p = this.pose, d = vDist(p, q);
+            if (d <= WALL.DIST_TOL_CM) continue;
+            const course = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
+            await this.turnTo(course);
+            const r = await this.driveForward(course, d, WALL.BLOCK_CM);
+            this.trace.path += r.traveled;
+            if (r.blocked) return false;
+          }
+          return true;
+        },
+
         // ---- skan ----
-        // skan radarem; zwraca listę przejść (każde to lista pomiarów), record = nanoszenie na mapę
-        async scan(from, to, step, sweeps, record) {
+        // jedno przejście radaru od from do to (zawsze w tę stronę); pomiary trafiają na mapę
+        async scan(from, to) {
           Transport.send('W:RADAROFF');
           Transport.send('W:SERVO:' + from);
           await this.sleep(WALL.SWEEP_MS);
-          this.scanState = { from, to, sweeps, record, dir: 1, pts: [], done: [] };
-          Transport.send(`W:RADAR:${from},${to},${step},${WALL.SCAN_INTERVAL_MS}`);
-          const count = ((to - from) / step + 1) * sweeps;
-          const done = await this.wait('scan', count * (WALL.SCAN_INTERVAL_MS + 150) + 3000, 'skan nie został ukończony');
+          this.scanState = { to, pts: [] };
+          Transport.send(`W:RADAR:${from},${to},${WALL.SCAN_STEP},${WALL.SCAN_INTERVAL_MS}`);
+          const count = (to - from) / WALL.SCAN_STEP + 1;
+          const pts = await this.wait('scan', count * (WALL.SCAN_INTERVAL_MS + 150) + 3000, 'skan nie został ukończony');
           this.scanState = null;
           Transport.send('W:RADAROFF');
-          return done;
+          return pts;
         },
 
-        // skan zgrubny 15-165 st.; wyniki trafiają do bins względem kursu reference
-        async scanInto(bins, reference) {
-          const [pts] = await this.scan(SERVO_MIN, SERVO_MAX, WALL.SCAN_STEP, 1, true);
-          wallBins(pts, reference, WALL.SCAN_STEP, bins);
+        // full: pełny zakres serwa, inaczej sektor przy obchodzie (kierunek jazdy i ściana);
+        // zwraca odległość na wprost (mediana pomiarów blisko osi) albo null
+        async scanMap(full) {
+          const back = 90 + WALL.TRACE_BACK_DEG * (WALL.SIDE < 0 ? 1 : -1);
+          const [from, to] = full ? [SERVO_MIN, SERVO_MAX] : WALL.SIDE < 0 ? [SERVO_MIN, back] : [back, SERVO_MAX];
+          const pts = await this.scan(from, to);
+          const ds = pts.filter(m => Math.abs(m.servo - 90) <= WALL.FRONT_DEG && usableDist(m.dist)).map(m => m.dist);
+          return ds.length >= 2 ? median(ds) : null;
+        },
+
+        // ---- ściany na mapie ----
+        // bieżąca ściana w oknie wokół rzutu pojazdu na nią, blisko przybliżenia prior; zwraca odcinek
+        // najbliższy pojazdowi albo null
+        fitWall(prior) {
+          const pose = this.pose, sr = wallS(prior, pose), n = vDir(prior.phi);
+          const keep = (x, y) => Math.abs(x * n.x + y * n.y - prior.rho) <= WALL.FIT_BAND_CM;
+          const tol = WALL.FIT_ANG_TOL_DEG, angles = Array.from({ length: 2 * tol + 1 }, (_, k) => prior.phi - tol + k);
+          const segs = mapFindWalls(wallPoint(prior, sr), WALL.FIT_ALONG_CM, keep, angles, 1, pose, 0);
+          if (!segs.length || Math.abs(wallGap(segs[0], pose) - wallGap(prior, pose)) > WALL.FIT_DIST_TOL_CM) return null;
+          const off = w => { const s = wallS(w, pose); return s < w.lo ? w.lo - s : s > w.hi ? s - w.hi : 0; };
+          return segs.reduce((b, w) => off(w) < off(b) ? w : b);
+        },
+
+        // ściana przed pojazdem: najlepszy odcinek, przy czym liczą się suma wag i bliskość
+        wallAhead() {
+          const p = this.pose, h = vDir(p.theta), s = sensorPos(p);
+          const keep = (x, y) => (x - p.x) * h.x + (y - p.y) * h.y > 0;
+          let best = null;
+          for (const w of mapFindWalls(s, WALL.AHEAD_CM, keep, WALL_ANGLES, WALL.CAND_LINES, p, WALL.WALL_MIN_CM)) {
+            const score = w.ev * Math.exp(-segDist(s, ...wallEnds(w)) / WALL.NEXT_DIST_CM);
+            if (!best || score > best.score) best = { w, score };
+          }
+          return best && best.w;
+        },
+
+        // filtr komórek: pomija obchodzone już ściany i extra (pierwsza ściana zostaje widoczna po obejściu
+        // co najmniej trzech, aby dało się ją rozpoznać na końcu obiegu)
+        unmasked(extra = []) {
+          const ws = [...(this.walls.length >= 3 ? this.walls.slice(1) : this.walls), ...extra];
+          return (x, y) => !ws.some(w => segDist({ x, y }, w.a, w.b) <= WALL.EXCLUDE_CM);
+        },
+
+        // ściana w poprzek kierunku jazdy przed pojazdem (narożnik wklęsły); { wall, u } - u: odległość
+        // osi pojazdu od niej wzdłuż kierunku jazdy
+        cornerAhead() {
+          const w = this.wall, p = this.pose, t = wallAlong(w), [a, b] = wallEnds(w);
+          const keep = this.unmasked([{ a, b }]);
+          let best = null;
+          for (const c of mapFindWalls(vAdd(p, t, WALL_AXIS_CM), WALL.CORNER_WINDOW_CM, keep, WALL_ANGLES, WALL.CAND_LINES, p, WALL.WALL_MIN_CM)) {
+            const tn = vDot(t, vDir(c.phi));
+            if (tn < Math.SQRT1_2) continue; // ściana musi stać w poprzek toru (do 45 st.)
+            const u = wallGap(c, p) / tn, s = wallS(c, vAdd(p, t, u));
+            if (u > WALL.STEP_MAX_CM + WALL_AXIS_CM || s < c.lo - WALL.CORNER_SEG_CM || s > c.hi + WALL.CORNER_SEG_CM) continue;
+            if (!best || u < best.u) best = { wall: c, u };
+          }
+          return best;
+        },
+
+        // kandydaci na kolejną ścianę wokół końca E poprzedniej ściany prev, od najbardziej prawdopodobnego:
+        // suma wag x kara za odległość od E x zgodność z kształtem pomieszczenia (narożnik, uskok)
+        rankNext(prev, E) {
+          const t = wallAlong(prev), sE = vDot(E, t);
+          const weight = c => {
+            const d = Math.abs(lineDiff(c.phi, prev.phi));
+            return d >= 70 ? 1 : d <= 20 ? .7 : .3;
+          };
+          return mapFindWalls(E, WALL.NEXT_RADIUS_CM, this.unmasked(), WALL_ANGLES, WALL.CAND_LINES, this.pose, WALL.WALL_MIN_CM)
+            .map(c => ({ c, ends: wallEnds(c) }))
+            .filter(({ ends }) => Math.max(vDot(ends[0], t), vDot(ends[1], t)) >= sE - WALL.NEXT_BEHIND_CM)
+            .map(({ c, ends }) => ({ c, score: c.ev * Math.exp(-segDist(E, ...ends) / WALL.NEXT_DIST_CM) * weight(c) }))
+            .sort((a, b) => b.score - a.score)
+            .map(x => x.c);
+        },
+
+        // kandydat c to pierwsza ściana obiegu: 'closed', gdy koniec E poprzedniej ściany leży przed jej obejściem
+        // fragmentem (pojazd dochodzi do początku obiegu), 'skip' w innym miejscu (już obchodzona), inaczej null
+        firstWall(c, E) {
+          const f = this.walls[0];
+          if (this.walls.length < 3 || !wallSameLine(c, f)) return null;
+          return wallS(f, E) <= wallS(f, f.a) + WALL.CLOSE_GAP_CM ? 'closed' : 'skip';
+        },
+
+        // trasa do miejsca przed ścianą c (WALL_AXIS_CM od niej i od narożnika z poprzednią ścianą prev);
+        // najpierw wprost, potem przez punkt pośredni; null, gdy na mapie każda trasa jest zajęta
+        planRoute(c, prev, E) {
+          const [A, B] = wallEnds(c), len = c.hi - c.lo;
+          let X = Math.abs(Math.sin(rad(angDiff(c.phi, prev.phi)))) > .5 ? wallCross(c, prev) : null;
+          if (X && segDist(X, A, B) > 2 * WALL.CORNER_SEG_CM) X = null;
+          const corner = X !== null;
+          if (!corner) X = vDist(A, E) <= vDist(B, E) ? A : B;
+          // od narożnika (albo bliższego końca) w głąb ściany
+          const mid = vAdd(A, vAdd(B, A, -1), .5), dl = vDist(mid, X);
+          let dir = vAdd(mid, X, -1);
+          if (dl < 1) {
+            const t = vDir(c.phi + 90), k = vDot(t, vDir(prev.phi)) > 0 ? -1 : 1;
+            dir = vAdd({ x: 0, y: 0 }, t, k);
+          } else dir = vAdd({ x: 0, y: 0 }, dir, 1 / dl);
+          const Q = vAdd(X, dir, corner ? WALL_AXIS_CM : Math.min(WALL_AXIS_CM, len / 2));
+          const P = vAdd(Q, vDir(c.phi), -WALL_AXIS_CM);
+
+          const p = this.pose, t = wallAlong(prev), k = vDot(vAdd(P, p, -1), t);
+          for (const route of [[P], [vAdd(p, t, k), P], [vAdd(P, t, -k), P]]) {
+            let a = p;
+            if (route.every(q => { const ok = mapPathClear(a, q); a = q; return ok; })) return route;
+          }
+          return null;
         },
 
         // ---- etapy algorytmu ----
-        // znajduje cały łuk (w razie potrzeby obracając pojazd), a potem dokładnymi skanami
-        // wyznacza kierunek prostopadły do ściany i ustawia pojazd przodem do niego
-        // minWidth: najpierw szukane są łuki co najmniej tak szerokie; węższe dopiero, gdy nie ma innych
-        async alignToWall(minWidth = 0) {
-          const reference = this.pose.theta, bins = new Map();
-          let anchor = 0, arc = null, spins = 0;
+        // skan i ustawienie przodem do ściany (prior: przybliżenie, null: ściana przed pojazdem);
+        // ustawia heading i bieżącą ścianę, zwraca ją albo null
+        async faceWall(prior) {
           for (let n = 0; ; n++) {
-            showWallStatus('Skan i szukanie łuku...');
-            await this.scanInto(bins, reference);
-            const arcs = wallFindArcs(bins, WALL.SCAN_STEP);
-            arc = wallPickArc(arcs.filter(a => a.hi - a.lo >= minWidth), anchor);
-            if (!arc && spins >= 2) arc = wallPickArc(arcs, anchor);
-            if (!arc) { // w zakresie skanu nie ma ściany: kolejne skany obejmują resztę otoczenia
-              if (++spins > 2) throw WALL_LOST;
-              await this.turnTo(reference + (spins === 1 ? 1 : -1) * WALL.SEARCH_TURN_DEG);
+            showWallStatus('Skan i szukanie ściany...');
+            await this.scanMap(true);
+            const w = prior ? this.fitWall(prior) : this.wallAhead();
+            if (!w) return null;
+            const off = Math.abs(angDiff(w.phi, this.pose.theta));
+            await this.turnTo(w.phi);
+            if (off > WALL.FACE_RESCAN_DEG && n < WALL.FACE_RESCANS) { // ściana mogła nie zmieścić się w skanie
+              prior = w;
               continue;
             }
-            anchor = arc.center;
-            if (!(arc.openHigh || arc.openLow) || n >= WALL.ARC_MAX_TURNS) break;
-            // krawędź łuku trafia na środek kolejnego skanu
-            await this.turnTo(reference + (arc.openHigh ? arc.hi : arc.lo));
+            this.heading = w.phi;
+            this.wall = w;
+            this.showWalls();
+            return w;
           }
-
-          await this.fineAlign(reference + arc.center, (arc.hi - arc.lo) / 2);
         },
 
-        // dokładne skany łuku: wyznacza kierunek prostopadły do ściany i odległość od niej
-        async fineAlign(normal, half) {
-          let last = null;
-          for (let n = 0; n < WALL.ALIGN_TRIES; n++) {
-            showWallStatus(`Dokładne ustawianie do ściany (${n + 1}/${WALL.ALIGN_TRIES})...`);
-            await this.turnTo(normal);
-            const reach = Math.min(90 - SERVO_MIN, WALL.FINE_STEP * Math.ceil((half + WALL.FINE_MARGIN_DEG) / WALL.FINE_STEP));
-            const sweeps = await this.scan(90 - reach, 90 + reach, WALL.FINE_STEP, WALL.FINE_SWEEPS, false);
-
-            // środek liczony osobno dla każdego kierunku ruchu serwa, a potem uśredniany
-            const merged = new Map(), arcs = [];
-            for (const pts of sweeps) {
-              wallBins(pts, normal, WALL.FINE_STEP, merged);
-              const a = wallPickArc(wallFindArcs(wallBins(pts, normal, WALL.FINE_STEP), WALL.FINE_STEP), 0);
-              if (a && !a.openLow && !a.openHigh) arcs.push(a);
-            }
-            if (!arcs.length) { // łuk nie zmieścił się w zakresie albo zanikł - następny skan będzie szerszy
-              half += WALL.FINE_MARGIN_DEG;
-              continue;
-            }
-            const correction = mean(arcs.map(a => a.center)), front = wallFrontDist(merged, WALL.FINE_STEP);
-            half = mean(arcs.map(a => (a.hi - a.lo) / 2));
-            normal += correction;
-            last = front != null ? { normal, front, correction } : null;
-            if (last && Math.abs(correction) <= WALL.ALIGN_TOL_DEG) break;
+        // ściana przed pojazdem albo - gdy jej nie ma - po obrocie w jedną lub drugą stronę
+        async findWall() {
+          const base = this.pose.theta;
+          for (const turn of [0, WALL.SEARCH_TURN_DEG, -WALL.SEARCH_TURN_DEG]) {
+            if (turn) await this.turnTo(base + turn);
+            if (await this.faceWall(null)) return true;
           }
-          // przy zaszumionych pomiarach wystarcza niewiele większa zgodność ostatnich skanów
-          if (!last || Math.abs(last.correction) > 2 * WALL.ALIGN_TOL_DEG) throw new Error('nie udało się dokładnie ustawić do ściany');
-          await this.turnTo(last.normal);
-          this.heading = last.normal;
-          this.refDist = last.front;
+          return false;
         },
 
         // odległość na wprost z kilku pomiarów na postoju
@@ -2529,8 +2794,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             const m = await this.nextPing();
             if (usableDist(m.dist)) ds.push(m.dist);
           }
-          if (ds.length < 3) throw new Error('brak pomiaru ściany na wprost');
-          return median(ds);
+          if (ds.length >= 3) return median(ds);
+          // brak echa (np. ściana nie dokładnie prostopadła do wiązki): odległość wynikająca z mapy
+          const d = this.wall && wallGap(this.wall, this.pose) - WALL.SENSOR_OFFSET_CM;
+          if (!d || d <= 0 || d > WALL.MAX_RANGE_CM) throw new Error('brak pomiaru ściany na wprost');
+          Dashboard.logSent(`Mapowanie: brak echa na wprost, odległość z mapy ${d.toFixed(0)} cm`);
+          return d;
         },
 
         // podjazd lub odsunięcie, aż odległość od ściany będzie równa wallDist
@@ -2547,9 +2816,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         },
 
         // narożnik wypukły: odjazd w bok od krawędzi, minięcie jej i obrót przodem do bocznej ściany;
-        // zwraca przejechaną drogę. Przeszkoda po drodze przerywa manewr i staje się kolejną ścianą
-        async roundCorner(side) {
-          const course = this.heading + side * 90, ahead = this.heading;
+        // zwraca przejechaną drogę. Przeszkoda po drodze przerywa manewr
+        async roundCorner() {
+          const side = WALL.SIDE, course = this.heading + side * 90, ahead = this.heading;
           await this.turnTo(course);
           const away = await this.driveForward(course, WALL.STOP_CM, WALL.BLOCK_CM);
           if (away.blocked) return away.traveled;
@@ -2560,81 +2829,112 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           return away.traveled + pass.traveled;
         },
 
-        // obchodzi kolejne ściany (side = -1: w prawo); zwraca opis zakończenia. Ściana kończy się, gdy
-        // przeszkoda zatrzyma krok albo odległość na wprost się zmieni - auto ustawia się wtedy
-        // prostopadle do nowej ściany, w odległości STOP_CM, i idzie dalej w tę samą stronę.
-        // Gdy na wprost nie ma żadnej ściany, kolejna leży za narożnikiem wypukłym
-        async traceWalls(side) {
+        // koniec bieżącej ściany: zapisuje ją i przechodzi do kolejnej (forced: już wybranej);
+        // zwraca nową ścianę, 'closed' po rozpoznaniu pierwszej ściany albo null, gdy kolejnej nie ma.
+        // Gdy mapa nie wskazuje osiągalnej ściany, kolejne próby zbierają więcej danych.
+        async nextWall(forced) {
+          const prev = this.wall, [S, E] = wallEnds(prev), base = this.heading;
+          this.walls.push({ phi: prev.phi, rho: prev.rho, a: S, b: E, src: prev });
+          this.marks.push(E);
+          mapView.setMarks([...this.marks]);
+          this.showWalls();
+          const looks = [
+            async () => { // skan po przekątnej: koniec ściany, kierunek jazdy i ewentualna ściana na wprost
+              await this.turnTo(base + WALL.SIDE * 45);
+              await this.scanMap(true);
+            },
+            async () => { // narożnik wypukły: kolejna ściana jest za krawędzią, poza zasięgiem sonaru
+              if (vDist(this.pose, E) > WALL.NEXT_RADIUS_CM) return;
+              await this.turnTo(base);
+              this.trace.path += await this.roundCorner();
+              await this.scanMap(true);
+            },
+            async () => {
+              await this.turnTo(base + WALL.SEARCH_TURN_DEG);
+              await this.scanMap(true);
+            },
+            async () => {
+              await this.turnTo(base - WALL.SEARCH_TURN_DEG);
+              await this.scanMap(true);
+            },
+          ];
+          let cands = forced ? [forced] : [];
+          for (let k = -1; k < looks.length; k++) {
+            if (k >= 0) {
+              showWallStatus(`Szukanie kolejnej ściany (${k + 1}/${looks.length})...`);
+              await looks[k]();
+              cands = this.rankNext(prev, E);
+            }
+            for (const c of cands.slice(0, WALL.NEXT_TRIES)) {
+              const first = this.firstWall(c, E);
+              if (first === 'closed') return 'closed';
+              if (first) continue;
+              const route = this.planRoute(c, prev, E);
+              if (!route) continue;
+              showWallStatus('Przejazd do kolejnej ściany...');
+              if (!await this.follow(route)) break; // przeszkoda poza mapą: kolejny skan
+              await this.turnTo(c.phi);
+              const w = await this.faceWall(c);
+              if (w) return w;
+            }
+          }
+          return null;
+        },
+
+        // obchodzi kolejne ściany; zwraca opis zakończenia. Krok wzdłuż ściany sięga tak daleko, jak
+        // ściana jest widoczna na mapie, i kończy się skanem, który poprawia jej dopasowanie
+        async traceWalls() {
           // postęp jest w this.trace, aby obchód dało się kontynuować po wznowieniu
-          if (!this.trace) this.trace = { start: this.pose, turned: 0, walls: 1, path: 0, n: 0 };
+          if (!this.trace) this.trace = { turned: 0, walls: 1, path: 0, n: 0 };
           const t = this.trace;
-          let good = this.pose, sinceAlign = 0; // good: ostatnia pozycja przy ścianie
           const summary = s => `Zakończono: ${s}; narożniki: ${this.marks.length}, droga: ${(t.path / 100).toFixed(1)} m.`;
-          const closed = () => Math.abs(t.turned) >= WALL.CLOSE_TURN_DEG
-            && Math.hypot(this.pose.x - t.start.x, this.pose.y - t.start.y) <= WALL.CLOSE_CM;
 
           while (true) {
             if (t.walls > WALL.MAX_WALLS || t.path >= WALL.MAX_PATH_CM) return summary('osiągnięto limit obchodu');
             showWallStatus(`Ściana ${t.walls}, krok ${++t.n}...`);
-            const course = this.heading + side * 90;
-            await this.turnTo(course);
-            const step = await this.driveForward(course, WALL.STEP_CM, WALL.BLOCK_CM);
-            const blockedAt = step.blocked ? this.lastFront : null;
-            t.path += step.traveled;
+            const sr = wallS(this.wall, this.pose);
+            let step = clamp(this.wall.hi - sr - WALL.STEP_MARGIN_CM, WALL.STEP_MIN_CM, WALL.STEP_MAX_CM), next = null;
+            const corner = this.cornerAhead();
+            if (corner) {
+              if (corner.u - WALL_AXIS_CM <= WALL.STEP_MIN_CM) next = corner.wall;
+              else step = Math.min(step, corner.u - WALL_AXIS_CM);
+            }
 
-            if (step.blocked) {
-              this.addBoundary(this.pose, blockedAt || 0, side); // nowa przeszkoda jest już przed autem
-            } else {
-              await this.turnTo(this.heading);
-              const view = new Map();
-              await this.scanInto(view, this.heading);
-              const d = wallFrontDist(view, WALL.SCAN_STEP), p = this.pose;
-              const ahead = wallFindArcs(view, WALL.SCAN_STEP).find(a => a.lo <= 0 && 0 <= a.hi);
-              if (d != null && Math.abs(d - this.refDist) <= WALL.SAME_TOL_CM) {
-                this.refDist = d;
-                good = p;
-                if (ahead && ++sinceAlign >= WALL.REALIGN_STEPS) {
+            if (!next) {
+              const course = this.heading + WALL.SIDE * 90;
+              await this.turnTo(course);
+              const r = await this.driveForward(course, step, WALL.BLOCK_CM);
+              t.path += r.traveled;
+              if (!r.blocked) {
+                await this.turnTo(this.heading);
+                const front = await this.scanMap(false);
+                // ściana trwa, gdy na mapie sięga pojazdu, a sonar na wprost widzi ją tam, gdzie wskazuje mapa
+                // (echa od krawędzi potrafią przedłużyć ścianę na mapie poza jej koniec)
+                const w = this.fitWall(this.wall), s = w && wallS(w, this.pose);
+                if (w && s >= w.lo - WALL.COVER_CM && s <= w.hi + WALL.COVER_CM && front != null
+                    && Math.abs(front - (wallGap(w, this.pose) - WALL.SENSOR_OFFSET_CM)) <= WALL.SAME_TOL_CM) {
+                  this.wall = { ...w, lo: Math.min(this.wall.lo, w.lo), hi: Math.max(this.wall.hi, w.hi) };
+                  this.showWalls();
                   const before = this.heading;
-                  showWallStatus('Korekta kąta i odległości od ściany...');
-                  await this.fineAlign(before + ahead.center, (ahead.hi - ahead.lo) / 2);
-                  await this.adjustDistance();
-                  t.turned += angDiff(this.heading, before);
-                  sinceAlign = 0;
-                  good = this.pose;
+                  this.heading = w.phi;
+                  if (Math.abs(angDiff(w.phi, before)) > WALL.ALIGN_TOL_DEG) await this.turnTo(w.phi);
+                  t.turned += angDiff(w.phi, before);
+                  this.refDist = front;
+                  if (Math.abs(front - this.wallDist) > WALL.DIST_TOL_CM) await this.adjustDistance();
+                  continue;
                 }
-                if (closed()) return summary('pełny obieg');
-                continue;
               }
-              this.addBoundary({ x: (good.x + p.x) / 2, y: (good.y + p.y) / 2 }, 0, side);
-              const wallAhead = d != null && ahead && ahead.hi - ahead.lo >= WALL.WALL_ARC_MIN_DEG;
-              if (!wallAhead) t.path += await this.roundCorner(side);
             }
 
-            const previous = this.heading;
-            try {
-              await this.alignToWall(WALL.WALL_ARC_MIN_DEG);
-            } catch (e) {
-              if (e === WALL_LOST) return summary('brak kolejnej ściany');
-              throw e;
-            }
+            const previous = this.heading, res = await this.nextWall(next);
+            if (res === 'closed') return summary('pełny obieg');
+            if (!res) return summary('brak kolejnej ściany');
             this.wallDist = WALL.STOP_CM;
             await this.adjustDistance();
             t.turned += angDiff(this.heading, previous);
             t.walls++;
-            sinceAlign = 0;
-            good = this.pose;
-            if (closed() || Math.abs(t.turned) >= WALL.CLOSE_MAX_TURN_DEG) return summary('pełny obieg');
+            if (Math.abs(t.turned) >= WALL.CLOSE_MAX_TURN_DEG) return summary('pełny obieg');
           }
-        },
-
-        // granica: punkt ściany naprzeciw pozycji p, przesunięty wzdłuż ściany o along
-        addBoundary(p, along, side) {
-          const h = rad(this.heading), s = rad(this.heading + side * 90), r = this.refDist + WALL.SENSOR_OFFSET_CM;
-          this.marks.push({
-            x: p.x + r * Math.cos(h) + along * Math.cos(s),
-            y: p.y + r * Math.sin(h) + along * Math.sin(s),
-          });
-          mapView.setMarks([...this.marks]);
         },
       };
 
