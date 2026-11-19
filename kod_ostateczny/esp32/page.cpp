@@ -661,7 +661,25 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                   <button class="btn sm" id="map-clear">Wyczyść</button>
                   <button class="btn sm" id="map-save">Zapisz PNG</button>
                 </div>
-                <div class="map-msg" id="map-status" role="status">Wykrywanie ściany: gotowe do startu.</div>
+                <div class="map-msg" id="map-status" role="status">Gotowe do startu.</div>
+              </div>
+              <div class="card">
+                <div class="card-h">Cykl</div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>Wolne przy braku echa</span><b>cm</b></div>
+                  <div class="map-l">
+                    <input type="range" data-cfg="freeCm" aria-label="Wolne przy braku echa">
+                    <input type="number" data-cfg="freeCm" aria-label="Wolne przy braku echa">
+                  </div>
+                </div>
+                <div class="ctl">
+                  <div class="ctl-top"><span>Obrót po skanie (+ lewo, − prawo)</span><b>°</b></div>
+                  <div class="map-l">
+                    <input type="range" data-cfg="turnDeg" aria-label="Obrót po skanie">
+                    <input type="number" data-cfg="turnDeg" aria-label="Obrót po skanie">
+                  </div>
+                </div>
+                <button class="btn sm" id="map-cfg-default" style="--c:var(--lime)">Wartości domyślne</button>
               </div>
               <div class="card">
                 <div class="card-h">Prędkości</div>
@@ -1357,7 +1375,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         w: 0, h: 0, zoom: 1, vx: 0, vy: 0, // zoom [px/cm], (vx, vy) = punkt na środku widoku
         fitted: false, follow: false, stale: true,
         pose: null, hover: null,
-        marks: [], // wykryte granice ściany { x, y } [cm]
+        marks: [], // miejsce ostatniego skanu { x, y } [cm]
 
         sx(x) { return this.w / 2 + (x - this.vx) * this.zoom; },
         sy(y) { return this.h / 2 - (y - this.vy) * this.zoom; },
@@ -1490,7 +1508,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             if (this.sy(y) < h - 18) c.fillText(y / 100 + ' m', 5, this.sy(y) - 3);
           }
 
-          // granice ściany
+          // miejsce ostatniego skanu
           c.fillStyle = '#b4ff1f';
           c.strokeStyle = '#06070b';
           c.lineWidth = 1.5;
@@ -2037,51 +2055,31 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         btn.disabled = false;
       };
 
-      // LOGIKA: WYKRYWANIE ŚCIANY
-      // Pojazd dojeżdża do przeszkody, ustawia się prostopadle do ściany (środek łuku pomiarów),
-      // a potem przesuwa się wzdłuż niej w prawo. Na końcu ściany przechodzi do następnej i tak
-      // obchodzi kolejne ściany, aż wykona pełny obieg i wróci w pobliże miejsca startu.
+      // LOGIKA: AUTOMAT MAPOWANIA
+      // Cykl: pojazd jedzie prosto aż do przeszkody, skanuje otoczenie 15-165 st., obraca się o ustawiony kąt
+      // i zaczyna od nowa, aż użytkownik zatrzyma mapowanie.
+      // Podczas jazdy sonar rozgląda się lekko na boki, a wszystkie pomiary z czasu pracy trafiają na mapę.
       // Używa tylko W:MOTOR, W:SERVO, W:RADAR i W:RADAROFF; obroty i odległości kontroluje na podstawie A:POS.
-      const WALL = {
+      const EXPLORE = {
         STOP_CM: 50, // odległość od przeszkody kończąca dojazd
-        STEP_CM: 20, // długość kroku wzdłuż ściany
-        BLOCK_CM: 20, // przeszkoda przerywająca krok
         SEARCH_MAX_CM: 400, // najdłuższy dojazd do przeszkody
-        MAX_WALLS: 16, // limit bezpieczeństwa: liczba ścian
-        MAX_PATH_CM: 4000, // limit bezpieczeństwa: droga wzdłuż ścian
-        CLOSE_TURN_DEG: 330, // suma obrotów oznaczająca pełny obieg
-        CLOSE_MAX_TURN_DEG: 450, // po takiej sumie obrotów obieg kończy się także bez trafienia w start
-        CLOSE_CM: 60, // odległość od startu kończąca obieg
-        SEARCH_TURN_DEG: 120, // obrót przy szukaniu ściany poza zakresem skanu
-        CORNER_PAST_CM: 30, // o ile minąć linię kończącej się ściany przy narożniku wypukłym
-        WALL_ARC_MIN_DEG: 20, // węższy łuk to zwykle tylko krawędź ściany (szerokość wiązki)
-        REALIGN_STEPS: 4, // co tyle kroków auto ponownie ustawia się do ściany (usuwa dryf kąta)
+        HALF_WIDTH_CM: 12, // połowa szerokości pasa przed pojazdem, w którym przeszkoda zatrzymuje jazdę
+        FRONT_DEG: 10, // pomiar bez przeszkody w tym zakresie od osi pojazdu potwierdza wolną drogę
         BRAKE_CM: 2, // zapas na wybieg po wyłączeniu silników
         DRIVE_LAG_S: 0.2, // opóźnienie pozy i wybieg uwzględniane przy hamowaniu
-        DIST_TOL_CM: 3, // dokładność ustawienia odległości od ściany
-        DIST_TRIES: 4,
-        FRONT_PINGS: 5, // liczba pomiarów przy sprawdzaniu odległości na postoju
         MAX_RANGE_CM: 200, // dalszych pomiarów nie używamy (rozdz. 4.2.3)
         SENSOR_OFFSET_CM: 15, // odległość a sonaru od osi pojazdu (równ. 3.4) - do zmierzenia
         SERVO_TRIM_DEG: 0, // o ile rzeczywisty kierunek sonaru przy 90 st. odbiega od osi pojazdu (+ = w lewo)
 
-        SCAN_STEP: 5, // krok skanu zgrubnego [st.]
-        FINE_STEP: 2, // krok skanu dokładnego [st.]
-        FINE_SWEEPS: 2, // przejścia w obie strony znoszą wpływ luzu serwa
-        FINE_MARGIN_DEG: 15, // zapas skanu dokładnego poza krawędziami łuku
-        SCAN_INTERVAL_MS: 150,
+        SCAN_STEP: 5, // krok skanu w punkcie [st.]
+        SCAN_INTERVAL_MS: 100,
+        LOOK_FROM: 70, // rozglądanie się podczas jazdy [st.]
+        LOOK_TO: 110,
+        LOOK_STEP: 10,
+        LOOK_INTERVAL_MS: 50,
         SWEEP_MS: 600, // dojazd serwa na początek skanu
-        SERVO_MS: 350, // ustawienie serwa na wprost
+        SERVO_MS: 350, // dojazd serwa na początek rozglądania się
         SETTLE_MS: 400, // uspokojenie pojazdu po zatrzymaniu
-
-        ARC_TOL_CM: 5, // największa różnica sąsiednich pomiarów łuku
-        ARC_MAX_JUMP_DEG: 10, // największy odstęp sąsiednich pomiarów łuku
-        ARC_MIN_POINTS: 3,
-        ARC_MIN_SPAN_DEG: 10,
-        ARC_MAX_TURNS: 4, // najwięcej obrotów przy szukaniu granic łuku
-        ALIGN_TOL_DEG: 2, // dopuszczalna korekta w ostatnim skanie dokładnym
-        ALIGN_TRIES: 4,
-        SAME_TOL_CM: 8, // „mniej więcej taka sama” odległość od ściany
 
         TURN_SLOW_DEG: 25, // poniżej tego błędu obrót zwalnia
         TURN_TOL_DEG: 1,
@@ -2098,115 +2096,77 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         KEEPALIVE_MS: 250, // powtarzanie W:MOTOR (Arduino zatrzymuje silniki po 1 s bez komend)
         DATA_TIMEOUT_MS: 2000,
       };
-      const WALL_SPEED_DEFAULT = { drive: 220, turn: 220, turnSlow: 200 }; // [PWM]
-      const wallSpeeds = { ...WALL_SPEED_DEFAULT }; // ustawiane na stronie, działają od razu
-      const WALL_ABORT = new Error('przerwano');
-      const WALL_LOST = new Error('nie wykryto łuku');
+      const LOOK_POINTS = (EXPLORE.LOOK_TO - EXPLORE.LOOK_FROM) / EXPLORE.LOOK_STEP + 1; // pomiary jednego przejścia
+      const EXPLORE_SPEED_DEFAULT = { drive: 220, turn: 220, turnSlow: 200 }; // [PWM]
+      const exploreSpeeds = { ...EXPLORE_SPEED_DEFAULT }; // ustawiane na stronie, działają od razu
+      // ustawiane na stronie, działają od razu
+      const EXPLORE_CFG_DEFAULT = {
+        freeCm: 50, // brak echa lub echo poza zasięgiem: stożek wolny do tej odległości [cm]
+        turnDeg: -90, // obrót po skanie [st., + = w lewo, - = w prawo]
+      };
+      const EXPLORE_CFG_LIMITS = { freeCm: [10, 400, 5], turnDeg: [-180, 180, 5] }; // min, max, krok
+      const EXPLORE_TURN_MIN_DEG = 15; // mniejszy obrót zostawiłby pojazd przodem do tej samej przeszkody
+      const exploreCfg = { ...EXPLORE_CFG_DEFAULT };
+      const EXPLORE_ABORT = new Error('przerwano');
       const angDiff = (a, b) => ((a - b + 540) % 360 + 360) % 360 - 180; // a - b w zakresie [-180, 180)
-      const median = v => [...v].sort((a, b) => a - b)[v.length >> 1];
-      const usableDist = d => d != null && d <= WALL.MAX_RANGE_CM;
-      const mean = v => v.reduce((a, b) => a + b, 0) / v.length;
-      const sonarBearing = m => m.theta + m.servo - 90 + WALL.SERVO_TRIM_DEG; // kierunek wiązki na mapie
+      const usableDist = d => d != null && d <= EXPLORE.MAX_RANGE_CM;
+      const sonarBearing = m => m.theta + m.servo - 90 + EXPLORE.SERVO_TRIM_DEG; // kierunek wiązki na mapie
 
-      // nanosi pomiar na siatkę (rozdz. 3.8): komórki stożka przed łukiem są wolne, a na łuku zajęte
+      // nanosi pomiar na siatkę (rozdz. 3.8): komórki stożka przed łukiem są wolne, na łuku zajęte, a za nim
+      // pozostają bez zmian (nieznane); brak echa albo echo dalsze niż MAX_RANGE_CM oznacza wolny stożek
+      // tylko do exploreCfg.freeCm
       function mapAddMeasurement(m) {
-        if (!usableDist(m.dist)) return;
-        const g = occGrid, half = g.cell / 2, r = m.dist + half, beam = sonarBearing(m);
-        const sx = m.x + WALL.SENSOR_OFFSET_CM * Math.cos(rad(m.theta));
-        const sy = m.y + WALL.SENSOR_OFFSET_CM * Math.sin(rad(m.theta));
-        for (let j = g.rowOf(sy - r); j <= g.rowOf(sy + r); j++) {
-          for (let i = g.colOf(sx - r); i <= g.colOf(sx + r); i++) {
+        const g = occGrid, half = g.cell / 2, beam = sonarBearing(m), hit = usableDist(m.dist);
+        const r = hit ? m.dist + half : exploreCfg.freeCm;
+        const sx = m.x + EXPLORE.SENSOR_OFFSET_CM * Math.cos(rad(m.theta));
+        const sy = m.y + EXPLORE.SENSOR_OFFSET_CM * Math.sin(rad(m.theta));
+        // prostokąt obejmujący stożek: czujnik, krawędzie i oś wiązki (z zapasem jednej komórki)
+        const xs = [sx], ys = [sy];
+        for (const a of [beam - BEAM_DEG / 2, beam, beam + BEAM_DEG / 2]) {
+          xs.push(sx + r * Math.cos(rad(a)));
+          ys.push(sy + r * Math.sin(rad(a)));
+        }
+        for (let j = g.rowOf(Math.min(...ys) - g.cell); j <= g.rowOf(Math.max(...ys) + g.cell); j++) {
+          for (let i = g.colOf(Math.min(...xs) - g.cell); i <= g.colOf(Math.max(...xs) + g.cell); i++) {
             const dx = g.cellX(i) - sx, dy = g.cellY(j) - sy, rho = Math.hypot(dx, dy);
             if (rho > r || Math.abs(angDiff(Math.atan2(dy, dx) * 180 / Math.PI, beam)) > BEAM_DEG / 2) continue;
-            if (rho < m.dist - half) g.markFree(i, j);
+            if (!hit || rho < m.dist - half) g.markFree(i, j);
             else g.markOccupied(i, j);
           }
         }
       }
 
-      // pomiary jako mapa: numer kierunku (co step st. względem reference) -> odległość lub null
-      function wallBins(pts, reference, step, bins = new Map()) {
-        for (const m of pts) bins.set(Math.round(angDiff(sonarBearing(m), reference) / step), m.dist);
-        return bins;
-      }
+      const showMapStatus = t => $('#map-status').textContent = t;
 
-      // łuki: ciągi sąsiednich kierunków o zbliżonej odległości; środek to średni kierunek
-      // pomiarów zgodnych z medianą łuku, więc pojedyncze błędy na krawędziach go nie przesuwają
-      function wallFindArcs(bins, step) {
-        const keys = [...bins.keys()].sort((a, b) => a - b), arcs = [];
-        let cur = null;
-        for (const k of keys) {
-          const d = bins.get(k);
-          if (!usableDist(d)) continue;
-          const fits = cur && (k - cur.ks.at(-1)) * step <= WALL.ARC_MAX_JUMP_DEG && Math.abs(d - cur.ds.at(-1)) <= WALL.ARC_TOL_CM
-            && Math.max(d, ...cur.ds) - Math.min(d, ...cur.ds) <= 2 * WALL.ARC_TOL_CM;
-          if (fits) {
-            cur.ks.push(k);
-            cur.ds.push(d);
-          } else {
-            cur = { ks: [k], ds: [d] };
-            arcs.push(cur);
-          }
-        }
-        return arcs.filter(a => a.ds.length >= WALL.ARC_MIN_POINTS && (a.ks.at(-1) - a.ks[0]) * step >= WALL.ARC_MIN_SPAN_DEG).map(a => {
-          const dist = median(a.ds), inliers = a.ks.filter((_, i) => Math.abs(a.ds[i] - dist) <= WALL.ARC_TOL_CM);
-          return {
-            lo: a.ks[0] * step, hi: a.ks.at(-1) * step, // krawędzie łuku [st.] względem reference
-            center: mean(inliers) * step,
-            dist,
-            openLow: a.ks[0] <= keys[0], // łuk dochodzi do krawędzi zbadanego zakresu
-            openHigh: a.ks.at(-1) >= keys.at(-1),
-          };
-        });
-      }
-
-      // wybiera łuk obejmujący kierunek anchor, a jeśli takiego nie ma - najszerszy (krawędzie ścian
-      // dają tylko wąskie łuki), przy równej szerokości najbliższy
-      function wallPickArc(arcs, anchor) {
-        const margin = BEAM_DEG / 2;
-        const hit = arcs.filter(a => a.lo - margin <= anchor && anchor <= a.hi + margin);
-        if (hit.length) return hit.reduce((b, a) => Math.abs(a.center - anchor) < Math.abs(b.center - anchor) ? a : b);
-        const width = a => a.hi - a.lo;
-        return arcs.length ? arcs.reduce((b, a) => width(a) > width(b) || (width(a) === width(b) && a.dist < b.dist) ? a : b) : null;
-      }
-
-      // odległość na wprost: mediana z kierunków +/-5 st., o ile co najmniej dwa mają echo
-      function wallFrontDist(bins, step) {
-        const ds = [...bins].filter(([k, d]) => Math.abs(k * step) <= 5 && usableDist(d)).map(([, d]) => d);
-        return ds.length >= 2 ? median(ds) : null;
-      }
-
-      const showWallStatus = t => $('#map-status').textContent = t;
-
-      const WallFinder = {
+      const Explorer = {
         active: false, runId: 0,
         pose: null,
         waiter: null, // jedyne oczekiwanie automatu: { kind, resolve, reject, timer }
         motors: [0, 0], keepalive: 0,
-        pulseMsPerDeg: WALL.PULSE_MS_PER_DEG, pulseDrop: 0, // czas i obniżenie PWM impulsu, dobierane w trakcie pracy
-        scanState: null,
-        moving: false, nearCount: 0, lastFront: null,
-        heading: 0, refDist: 0, // kierunek na ścianę i ostatnia poprawna odległość od niej
-        wallDist: 0, // docelowa odległość od bieżącej ściany
-        marks: [],
-        trace: null, // postęp obchodu ścian { start, turned, walls, path, n }; zachowany do wznowienia
+        pulseMsPerDeg: EXPLORE.PULSE_MS_PER_DEG, pulseDrop: 0, // czas i obniżenie PWM impulsu, dobierane w trakcie pracy
+        scanState: null, // skan w toku: { pts }
+        moving: null, // jazda w toku: { stopCm }
+        nearCount: 0, // kolejne pomiary przeszkody w pasie przed pojazdem
+        course: null, // kierunek dojazdu do przeszkody; zachowany do wznowienia
+        cycle: 0,
 
-        // resume: wznowienie po przerwie w połączeniu - obchód jest kontynuowany, jeśli już się zaczął
+        // resume: wznowienie po przerwie w połączeniu - jazda jest kontynuowana w zaplanowanym kierunku
         start(resume = false) {
           this.active = true;
           this.pose = null;
           if (!resume) {
-            this.marks = [];
-            this.trace = null;
+            this.course = null;
+            this.cycle = 0;
           }
-          mapView.setMarks([...this.marks]);
-          this.run(++this.runId, resume && this.trace !== null);
+          mapView.setMarks([]);
+          this.run(++this.runId);
         },
 
+        // reason = undefined: bez komunikatu (pozostaje opis błędu)
         stop(reason) {
           if (!this.active) return;
           this.active = false;
-          this.moving = false;
+          this.moving = null;
           this.scanState = null;
           this.motors = [0, 0];
           clearInterval(this.keepalive);
@@ -2215,47 +2175,34 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             Transport.send('W:RADAROFF');
             Transport.send('W:SERVO:90');
           }
-          if (reason !== 'finished') showWallStatus(`Zatrzymano (${reason}).`);
+          if (reason) showMapStatus(`Zatrzymano (${reason}).`);
           const w = this.waiter;
           this.waiter = null;
           if (w) {
             clearTimeout(w.timer);
-            w.reject(WALL_ABORT);
+            w.reject(EXPLORE_ABORT);
           }
         },
 
-        async run(id, resume) {
-          let reason = 'finished';
+        // cykle powtarzane aż do zatrzymania przez użytkownika albo błędu
+        async run(id) {
+          let reason;
           try {
             drive('S', true);
             await this.nextPose();
-            if (resume) {
-              // ponowne ustawienie do obchodzonej ściany (heading wskazuje na nią także po przerwie)
-              showWallStatus('Wznowienie: ustawianie do ściany...');
-              const previous = this.heading;
-              await this.turnTo(previous);
-              await this.alignToWall(WALL.WALL_ARC_MIN_DEG);
-              await this.adjustDistance();
-              this.trace.turned += angDiff(this.heading, previous);
-            } else {
-              showWallStatus('Dojazd do przeszkody...');
-              const found = await this.driveForward(this.pose.theta, WALL.SEARCH_MAX_CM, WALL.STOP_CM);
-              if (!found.blocked) throw new Error('nie znaleziono przeszkody');
-              await this.alignToWall();
-              this.wallDist = Math.min(WALL.STOP_CM, this.refDist);
-            }
-            showWallStatus(await this.traceWalls(-1));
+            if (this.course === null) this.course = this.pose.theta;
+            while (true) await this.exploreCycle();
           } catch (e) {
-            if (e === WALL_ABORT) return;
+            if (e === EXPLORE_ABORT) return;
             if (Transport.stale()) {
               reason = 'connection'; // brak odpowiedzi wynika z przerwy w danych, a nie z błędu automatu
             } else {
-              showWallStatus('Błąd: ' + e.message + '.');
+              showMapStatus('Błąd: ' + e.message + '.');
               reason = 'error';
             }
           }
           if (id === this.runId && this.active) {
-            this.stop('finished');
+            this.stop();
             MapControl.setRunning(false, reason);
           }
         },
@@ -2267,33 +2214,41 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           if (this.waiter && this.waiter.kind === 'pose') this.finishWait(p);
         },
 
+        // każdy pomiar z czasu pracy trafia na mapę
         onMeasurement(m) {
           if (!this.active) return;
-          if (this.scanState) this.onScanPoint(m);
-          else if (m.servo === 90) {
-            if (this.moving) {
-              mapAddMeasurement(m);
-              this.lastFront = m.dist;
-              this.nearCount = m.dist != null && m.dist < this.moving.stopCm ? this.nearCount + 1 : 0;
-            }
-            if (this.waiter && this.waiter.kind === 'ping') this.finishWait(m);
+          mapAddMeasurement(m);
+          if (this.scanState) {
+            this.onScanPoint(m);
+            return;
           }
+          if (this.moving) this.checkPath(m);
+          if (this.waiter && this.waiter.kind === 'ping') this.finishWait(m);
+        },
+
+        // liczy kolejne pomiary przeszkody w pasie przed pojazdem bliżej niż stopCm;
+        // pomiar w okolicy osi pojazdu bez takiej przeszkody zeruje licznik
+        checkPath(m) {
+          const rel = m.servo - 90 + EXPLORE.SERVO_TRIM_DEG;
+          if (m.dist != null) {
+            const ahead = m.dist * Math.cos(rad(rel)), aside = Math.abs(m.dist * Math.sin(rad(rel)));
+            if (ahead < this.moving.stopCm && aside <= EXPLORE.HALF_WIDTH_CM) {
+              this.nearCount++;
+              return;
+            }
+          }
+          if (Math.abs(rel) <= EXPLORE.FRONT_DEG) this.nearCount = 0;
         },
 
         // przejście kończy się na krańcu zakresu albo przy zawróceniu serwa (gdy zgubiono ostatni punkt)
         onScanPoint(m) {
           const s = this.scanState, last = s.pts.at(-1);
           if (last && m.servo === last.servo) return;
-          const forward = !last || (m.servo - last.servo) * s.dir > 0;
-          if (forward) {
+          if (!last || m.servo > last.servo) {
             s.pts.push(m);
-            if (s.record) mapAddMeasurement(m);
-            if (m.servo * s.dir < (s.dir > 0 ? s.to : s.from) * s.dir) return;
+            if (m.servo < SERVO_MAX) return;
           }
-          s.done.push(s.pts);
-          s.pts = [m];
-          s.dir = -s.dir;
-          if (s.done.length >= s.sweeps && this.waiter && this.waiter.kind === 'scan') this.finishWait(s.done);
+          if (this.waiter && this.waiter.kind === 'scan') this.finishWait(s.pts);
         },
 
         // ---- oczekiwanie ----
@@ -2314,65 +2269,76 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           w.resolve(v);
         },
         sleep(ms) { return this.wait('sleep', ms); },
-        nextPose() { return this.wait('pose', WALL.DATA_TIMEOUT_MS, 'brak danych o pozycji'); },
-        nextPing() { return this.wait('ping', WALL.DATA_TIMEOUT_MS, 'brak pomiarów sonaru'); },
+        nextPose() { return this.wait('pose', EXPLORE.DATA_TIMEOUT_MS, 'brak danych o pozycji'); },
+        nextPing() { return this.wait('ping', EXPLORE.DATA_TIMEOUT_MS, 'brak pomiarów sonaru'); },
 
         // ---- silniki ----
         resetPulse() {
-          this.pulseMsPerDeg = WALL.PULSE_MS_PER_DEG;
+          this.pulseMsPerDeg = EXPLORE.PULSE_MS_PER_DEG;
           this.pulseDrop = 0;
         },
         setMotors(l, r) {
           this.motors = [clamp(Math.round(l), -255, 255), clamp(Math.round(r), -255, 255)];
           this.sendMotors();
           clearInterval(this.keepalive);
-          this.keepalive = l || r ? setInterval(() => this.sendMotors(), WALL.KEEPALIVE_MS) : 0;
+          this.keepalive = l || r ? setInterval(() => this.sendMotors(), EXPLORE.KEEPALIVE_MS) : 0;
         },
         sendMotors() { Transport.send(`W:MOTOR:${this.motors[0]},${this.motors[1]}`, false); },
         async stopMotors() {
           this.setMotors(0, 0);
-          await this.sleep(WALL.SETTLE_MS);
+          await this.sleep(EXPLORE.SETTLE_MS);
         },
 
         // ---- ruch ----
-        // jazda z utrzymaniem kursu (dir = -1: tyłem); kończy się po maxCm albo przy przeszkodzie bliżej niż stopCm
-        async driveForward(heading, maxCm, stopCm, dir = 1) {
-          Transport.send('W:SERVO:90');
-          await this.sleep(WALL.SERVO_MS);
-          const a = await this.nextPing(), b = await this.nextPing();
-          if (a.dist != null && b.dist != null && a.dist < stopCm && b.dist < stopCm) {
-            this.lastFront = b.dist;
-            return { blocked: true, traveled: 0 };
-          }
-
-          const start = this.pose;
-          let boost = 0, best = 0, bestAt = performance.now(), traveled = 0, blocked = false, prevAt = bestAt;
+        // jazda z utrzymaniem kursu, podczas której sonar rozgląda się na boki; kończy się po maxCm
+        // albo gdy dwa kolejne pomiary pokażą przeszkodę w pasie przed pojazdem bliżej niż stopCm
+        async driveForward(heading, maxCm, stopCm) {
+          const E = EXPLORE;
+          Transport.send('W:SERVO:' + E.LOOK_FROM);
+          await this.sleep(E.SERVO_MS);
           this.nearCount = 0;
           this.moving = { stopCm };
-          const pwm = () => dir * Math.min(255, wallSpeeds.drive + boost);
-          this.setMotors(pwm(), pwm());
-          while (true) {
-            const p = await this.nextPose();
-            const now = performance.now(), last = traveled;
-            traveled = Math.hypot(p.x - start.x, p.y - start.y);
-            const speed = Math.max(0, traveled - last) / Math.max(.02, (now - prevAt) / 1000);
-            prevAt = now;
-            if (this.nearCount >= 2) blocked = true;
-            if (blocked || traveled + speed * WALL.DRIVE_LAG_S >= maxCm - WALL.BRAKE_CM) break;
+          Transport.send(`W:RADAR:${E.LOOK_FROM},${E.LOOK_TO},${E.LOOK_STEP},${E.LOOK_INTERVAL_MS}`);
 
-            if (traveled >= best + 1) {
-              best = traveled;
-              bestAt = now;
-            } else if (now - bestAt > WALL.STALL_MS) {
-              if (Math.abs(pwm()) >= 255) throw new Error('pojazd nie rusza z miejsca');
-              boost += WALL.PWM_BOOST;
-              bestAt = now;
-            }
-            const steer = clamp(angDiff(heading, p.theta) * WALL.STEER_GAIN, -WALL.STEER_MAX, WALL.STEER_MAX);
-            this.setMotors(pwm() - steer, pwm() + steer);
+          // przed ruszeniem jedno przejście sonaru sprawdza, czy droga jest wolna
+          let blocked = false, traveled = 0;
+          for (let n = 0; n < LOOK_POINTS && !blocked; n++) {
+            await this.nextPing();
+            blocked = this.nearCount >= 2;
           }
-          this.moving = false;
-          await this.stopMotors();
+
+          if (!blocked) {
+            const start = this.pose;
+            let boost = 0, best = 0, bestAt = performance.now(), prevAt = bestAt;
+            const pwm = () => Math.min(255, exploreSpeeds.drive + boost);
+            this.setMotors(pwm(), pwm());
+            while (true) {
+              const p = await this.nextPose();
+              const now = performance.now(), last = traveled;
+              traveled = Math.hypot(p.x - start.x, p.y - start.y);
+              const speed = Math.max(0, traveled - last) / Math.max(.02, (now - prevAt) / 1000);
+              prevAt = now;
+              if (this.nearCount >= 2) blocked = true;
+              if (blocked || traveled + speed * E.DRIVE_LAG_S >= maxCm - E.BRAKE_CM) break;
+
+              if (traveled >= best + 1) {
+                best = traveled;
+                bestAt = now;
+              } else if (now - bestAt > E.STALL_MS) {
+                if (pwm() >= 255) throw new Error('pojazd nie rusza z miejsca');
+                boost += E.PWM_BOOST;
+                bestAt = now;
+              }
+              const steer = clamp(angDiff(heading, p.theta) * E.STEER_GAIN, -E.STEER_MAX, E.STEER_MAX);
+              this.setMotors(pwm() - steer, pwm() + steer);
+            }
+          }
+
+          this.setMotors(0, 0);
+          this.moving = null;
+          Transport.send('W:RADAROFF');
+          Transport.send('W:SERVO:90');
+          await this.sleep(E.SETTLE_MS);
           return { blocked, traveled };
         },
 
@@ -2382,17 +2348,17 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           let boost = 0;
           const power = base => Math.min(255, base + boost);
           const stalled = () => {
-            if (power(wallSpeeds.turnSlow) >= 255) throw new Error('pojazd nie może się obrócić');
-            boost += WALL.PWM_BOOST;
+            if (power(exploreSpeeds.turnSlow) >= 255) throw new Error('pojazd nie może się obrócić');
+            boost += EXPLORE.PWM_BOOST;
           };
 
           await this.nextPose();
           let err = angDiff(target, this.pose.theta);
-          if (Math.abs(err) > WALL.TURN_PULSE_DEG) {
+          if (Math.abs(err) > EXPLORE.TURN_PULSE_DEG) {
             const dir = Math.sign(err);
             let prev = this.pose.theta, prevAt = performance.now(), moved = 0, movedAt = prevAt;
             const spin = e => {
-              const pwm = power(Math.abs(e) > WALL.TURN_SLOW_DEG ? wallSpeeds.turn : wallSpeeds.turnSlow);
+              const pwm = power(Math.abs(e) > EXPLORE.TURN_SLOW_DEG ? exploreSpeeds.turn : exploreSpeeds.turnSlow);
               this.setMotors(-dir * pwm, dir * pwm);
             };
             spin(err);
@@ -2402,12 +2368,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
               prev = p.theta;
               prevAt = now;
               err = angDiff(target, p.theta);
-              if (err * dir <= rate * WALL.TURN_LAG_S + WALL.TURN_PULSE_DEG / 2) break;
+              if (err * dir <= rate * EXPLORE.TURN_LAG_S + EXPLORE.TURN_PULSE_DEG / 2) break;
               moved += Math.abs(step);
               if (moved >= 1) {
                 moved = 0;
                 movedAt = now;
-              } else if (now - movedAt > WALL.STALL_MS) {
+              } else if (now - movedAt > EXPLORE.STALL_MS) {
                 stalled();
                 movedAt = now;
               }
@@ -2416,229 +2382,62 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             await this.stopMotors();
           }
 
-          for (let n = 0; n < WALL.TURN_TRIES; n++) {
+          for (let n = 0; n < EXPLORE.TURN_TRIES; n++) {
             await this.nextPose();
             err = angDiff(target, this.pose.theta);
-            if (Math.abs(err) <= WALL.TURN_TOL_DEG) return;
-            const dir = Math.sign(err), pwm = Math.max(SPEED_MIN, power(wallSpeeds.turnSlow) - this.pulseDrop);
-            const ms = clamp(Math.abs(err) * this.pulseMsPerDeg, WALL.PULSE_MIN_MS, WALL.PULSE_MAX_MS);
+            if (Math.abs(err) <= EXPLORE.TURN_TOL_DEG) return;
+            const dir = Math.sign(err), pwm = Math.max(SPEED_MIN, power(exploreSpeeds.turnSlow) - this.pulseDrop);
+            const ms = clamp(Math.abs(err) * this.pulseMsPerDeg, EXPLORE.PULSE_MIN_MS, EXPLORE.PULSE_MAX_MS);
             this.setMotors(-dir * pwm, dir * pwm);
             await this.sleep(ms);
             await this.stopMotors();
             await this.nextPose();
             const gain = (angDiff(this.pose.theta, target) + err) * dir; // obrót wykonany w stronę celu
             if (gain < .5) {
-              if (this.pulseDrop > 0) this.pulseDrop = Math.max(0, this.pulseDrop - WALL.PWM_BOOST);
+              if (this.pulseDrop > 0) this.pulseDrop = Math.max(0, this.pulseDrop - EXPLORE.PWM_BOOST);
               else stalled();
             } else {
               this.pulseMsPerDeg = clamp(this.pulseMsPerDeg * clamp(Math.abs(err) / gain, .6, 1.4), 2, 60);
               // nawet najkrótszy impuls przeskakuje cel: trzeba go osłabić
-              if (ms <= WALL.PULSE_MIN_MS && gain > Math.abs(err) + WALL.TURN_TOL_DEG) this.pulseDrop += WALL.PWM_BOOST;
+              if (ms <= EXPLORE.PULSE_MIN_MS && gain > Math.abs(err) + EXPLORE.TURN_TOL_DEG) this.pulseDrop += EXPLORE.PWM_BOOST;
             }
           }
           throw new Error('nie udało się ustawić kursu');
         },
 
         // ---- skan ----
-        // skan radarem; zwraca listę przejść (każde to lista pomiarów), record = nanoszenie na mapę
-        async scan(from, to, step, sweeps, record) {
+        // skan 15-165 st. co SCAN_STEP; pomiary trafiają na mapę w onMeasurement
+        async scan() {
+          const E = EXPLORE;
           Transport.send('W:RADAROFF');
-          Transport.send('W:SERVO:' + from);
-          await this.sleep(WALL.SWEEP_MS);
-          this.scanState = { from, to, sweeps, record, dir: 1, pts: [], done: [] };
-          Transport.send(`W:RADAR:${from},${to},${step},${WALL.SCAN_INTERVAL_MS}`);
-          const count = ((to - from) / step + 1) * sweeps;
-          const done = await this.wait('scan', count * (WALL.SCAN_INTERVAL_MS + 150) + 3000, 'skan nie został ukończony');
+          Transport.send('W:SERVO:' + SERVO_MIN);
+          await this.sleep(E.SWEEP_MS);
+          this.scanState = { pts: [] };
+          Transport.send(`W:RADAR:${SERVO_MIN},${SERVO_MAX},${E.SCAN_STEP},${E.SCAN_INTERVAL_MS}`);
+          const count = (SERVO_MAX - SERVO_MIN) / E.SCAN_STEP + 1;
+          await this.wait('scan', count * (E.SCAN_INTERVAL_MS + 150) + 3000, 'skan nie został ukończony');
           this.scanState = null;
           Transport.send('W:RADAROFF');
-          return done;
-        },
-
-        // skan zgrubny 15-165 st.; wyniki trafiają do bins względem kursu reference
-        async scanInto(bins, reference) {
-          const [pts] = await this.scan(SERVO_MIN, SERVO_MAX, WALL.SCAN_STEP, 1, true);
-          wallBins(pts, reference, WALL.SCAN_STEP, bins);
-        },
-
-        // ---- etapy algorytmu ----
-        // znajduje cały łuk (w razie potrzeby obracając pojazd), a potem dokładnymi skanami
-        // wyznacza kierunek prostopadły do ściany i ustawia pojazd przodem do niego
-        // minWidth: najpierw szukane są łuki co najmniej tak szerokie; węższe dopiero, gdy nie ma innych
-        async alignToWall(minWidth = 0) {
-          const reference = this.pose.theta, bins = new Map();
-          let anchor = 0, arc = null, spins = 0;
-          for (let n = 0; ; n++) {
-            showWallStatus('Skan i szukanie łuku...');
-            await this.scanInto(bins, reference);
-            const arcs = wallFindArcs(bins, WALL.SCAN_STEP);
-            arc = wallPickArc(arcs.filter(a => a.hi - a.lo >= minWidth), anchor);
-            if (!arc && spins >= 2) arc = wallPickArc(arcs, anchor);
-            if (!arc) { // w zakresie skanu nie ma ściany: kolejne skany obejmują resztę otoczenia
-              if (++spins > 2) throw WALL_LOST;
-              await this.turnTo(reference + (spins === 1 ? 1 : -1) * WALL.SEARCH_TURN_DEG);
-              continue;
-            }
-            anchor = arc.center;
-            if (!(arc.openHigh || arc.openLow) || n >= WALL.ARC_MAX_TURNS) break;
-            // krawędź łuku trafia na środek kolejnego skanu
-            await this.turnTo(reference + (arc.openHigh ? arc.hi : arc.lo));
-          }
-
-          await this.fineAlign(reference + arc.center, (arc.hi - arc.lo) / 2);
-        },
-
-        // dokładne skany łuku: wyznacza kierunek prostopadły do ściany i odległość od niej
-        async fineAlign(normal, half) {
-          let last = null;
-          for (let n = 0; n < WALL.ALIGN_TRIES; n++) {
-            showWallStatus(`Dokładne ustawianie do ściany (${n + 1}/${WALL.ALIGN_TRIES})...`);
-            await this.turnTo(normal);
-            const reach = Math.min(90 - SERVO_MIN, WALL.FINE_STEP * Math.ceil((half + WALL.FINE_MARGIN_DEG) / WALL.FINE_STEP));
-            const sweeps = await this.scan(90 - reach, 90 + reach, WALL.FINE_STEP, WALL.FINE_SWEEPS, false);
-
-            // środek liczony osobno dla każdego kierunku ruchu serwa, a potem uśredniany
-            const merged = new Map(), arcs = [];
-            for (const pts of sweeps) {
-              wallBins(pts, normal, WALL.FINE_STEP, merged);
-              const a = wallPickArc(wallFindArcs(wallBins(pts, normal, WALL.FINE_STEP), WALL.FINE_STEP), 0);
-              if (a && !a.openLow && !a.openHigh) arcs.push(a);
-            }
-            if (!arcs.length) { // łuk nie zmieścił się w zakresie albo zanikł - następny skan będzie szerszy
-              half += WALL.FINE_MARGIN_DEG;
-              continue;
-            }
-            const correction = mean(arcs.map(a => a.center)), front = wallFrontDist(merged, WALL.FINE_STEP);
-            half = mean(arcs.map(a => (a.hi - a.lo) / 2));
-            normal += correction;
-            last = front != null ? { normal, front, correction } : null;
-            if (last && Math.abs(correction) <= WALL.ALIGN_TOL_DEG) break;
-          }
-          // przy zaszumionych pomiarach wystarcza niewiele większa zgodność ostatnich skanów
-          if (!last || Math.abs(last.correction) > 2 * WALL.ALIGN_TOL_DEG) throw new Error('nie udało się dokładnie ustawić do ściany');
-          await this.turnTo(last.normal);
-          this.heading = last.normal;
-          this.refDist = last.front;
-        },
-
-        // odległość na wprost z kilku pomiarów na postoju
-        async measureFront() {
           Transport.send('W:SERVO:90');
-          await this.sleep(WALL.SERVO_MS);
-          const ds = [];
-          for (let n = 0; n < 3 * WALL.FRONT_PINGS && ds.length < WALL.FRONT_PINGS; n++) { // zapas na brak echa
-            const m = await this.nextPing();
-            if (usableDist(m.dist)) ds.push(m.dist);
-          }
-          if (ds.length < 3) throw new Error('brak pomiaru ściany na wprost');
-          return median(ds);
         },
 
-        // podjazd lub odsunięcie, aż odległość od ściany będzie równa wallDist
-        async adjustDistance() {
-          showWallStatus('Ustawianie odległości od ściany...');
-          for (let n = 0; ; n++) {
-            this.refDist = await this.measureFront();
-            const delta = this.refDist - this.wallDist;
-            if (Math.abs(delta) <= WALL.DIST_TOL_CM || n >= WALL.DIST_TRIES) return;
-            if (delta > 0) await this.driveForward(this.heading, delta, Math.min(WALL.BLOCK_CM, this.wallDist - WALL.DIST_TOL_CM));
-            else await this.driveForward(this.heading, -delta, 0, -1);
-            await this.turnTo(this.heading);
-          }
-        },
+        // ---- cykl ----
+        // dojazd do przeszkody, skan i obrót o exploreCfg.turnDeg (wykonywany na początku kolejnego cyklu)
+        async exploreCycle() {
+          const n = ++this.cycle;
+          showMapStatus(`Cykl ${n}: jazda do przeszkody...`);
+          await this.turnTo(this.course);
+          await this.driveForward(this.course, EXPLORE.SEARCH_MAX_CM, EXPLORE.STOP_CM);
 
-        // narożnik wypukły: odjazd w bok od krawędzi, minięcie jej i obrót przodem do bocznej ściany;
-        // zwraca przejechaną drogę. Przeszkoda po drodze przerywa manewr i staje się kolejną ścianą
-        async roundCorner(side) {
-          const course = this.heading + side * 90, ahead = this.heading;
-          await this.turnTo(course);
-          const away = await this.driveForward(course, WALL.STOP_CM, WALL.BLOCK_CM);
-          if (away.blocked) return away.traveled;
-          await this.turnTo(ahead);
-          const past = this.refDist + WALL.SENSOR_OFFSET_CM + WALL.CORNER_PAST_CM;
-          const pass = await this.driveForward(ahead, past, WALL.BLOCK_CM);
-          if (!pass.blocked) await this.turnTo(ahead - side * 90);
-          return away.traveled + pass.traveled;
-        },
-
-        // obchodzi kolejne ściany (side = -1: w prawo); zwraca opis zakończenia. Ściana kończy się, gdy
-        // przeszkoda zatrzyma krok albo odległość na wprost się zmieni - auto ustawia się wtedy
-        // prostopadle do nowej ściany, w odległości STOP_CM, i idzie dalej w tę samą stronę.
-        // Gdy na wprost nie ma żadnej ściany, kolejna leży za narożnikiem wypukłym
-        async traceWalls(side) {
-          // postęp jest w this.trace, aby obchód dało się kontynuować po wznowieniu
-          if (!this.trace) this.trace = { start: this.pose, turned: 0, walls: 1, path: 0, n: 0 };
-          const t = this.trace;
-          let good = this.pose, sinceAlign = 0; // good: ostatnia pozycja przy ścianie
-          const summary = s => `Zakończono: ${s}; narożniki: ${this.marks.length}, droga: ${(t.path / 100).toFixed(1)} m.`;
-          const closed = () => Math.abs(t.turned) >= WALL.CLOSE_TURN_DEG
-            && Math.hypot(this.pose.x - t.start.x, this.pose.y - t.start.y) <= WALL.CLOSE_CM;
-
-          while (true) {
-            if (t.walls > WALL.MAX_WALLS || t.path >= WALL.MAX_PATH_CM) return summary('osiągnięto limit obchodu');
-            showWallStatus(`Ściana ${t.walls}, krok ${++t.n}...`);
-            const course = this.heading + side * 90;
-            await this.turnTo(course);
-            const step = await this.driveForward(course, WALL.STEP_CM, WALL.BLOCK_CM);
-            const blockedAt = step.blocked ? this.lastFront : null;
-            t.path += step.traveled;
-
-            if (step.blocked) {
-              this.addBoundary(this.pose, blockedAt || 0, side); // nowa przeszkoda jest już przed autem
-            } else {
-              await this.turnTo(this.heading);
-              const view = new Map();
-              await this.scanInto(view, this.heading);
-              const d = wallFrontDist(view, WALL.SCAN_STEP), p = this.pose;
-              const ahead = wallFindArcs(view, WALL.SCAN_STEP).find(a => a.lo <= 0 && 0 <= a.hi);
-              if (d != null && Math.abs(d - this.refDist) <= WALL.SAME_TOL_CM) {
-                this.refDist = d;
-                good = p;
-                if (ahead && ++sinceAlign >= WALL.REALIGN_STEPS) {
-                  const before = this.heading;
-                  showWallStatus('Korekta kąta i odległości od ściany...');
-                  await this.fineAlign(before + ahead.center, (ahead.hi - ahead.lo) / 2);
-                  await this.adjustDistance();
-                  t.turned += angDiff(this.heading, before);
-                  sinceAlign = 0;
-                  good = this.pose;
-                }
-                if (closed()) return summary('pełny obieg');
-                continue;
-              }
-              this.addBoundary({ x: (good.x + p.x) / 2, y: (good.y + p.y) / 2 }, 0, side);
-              const wallAhead = d != null && ahead && ahead.hi - ahead.lo >= WALL.WALL_ARC_MIN_DEG;
-              if (!wallAhead) t.path += await this.roundCorner(side);
-            }
-
-            const previous = this.heading;
-            try {
-              await this.alignToWall(WALL.WALL_ARC_MIN_DEG);
-            } catch (e) {
-              if (e === WALL_LOST) return summary('brak kolejnej ściany');
-              throw e;
-            }
-            this.wallDist = WALL.STOP_CM;
-            await this.adjustDistance();
-            t.turned += angDiff(this.heading, previous);
-            t.walls++;
-            sinceAlign = 0;
-            good = this.pose;
-            if (closed() || Math.abs(t.turned) >= WALL.CLOSE_MAX_TURN_DEG) return summary('pełny obieg');
-          }
-        },
-
-        // granica: punkt ściany naprzeciw pozycji p, przesunięty wzdłuż ściany o along
-        addBoundary(p, along, side) {
-          const h = rad(this.heading), s = rad(this.heading + side * 90), r = this.refDist + WALL.SENSOR_OFFSET_CM;
-          this.marks.push({
-            x: p.x + r * Math.cos(h) + along * Math.cos(s),
-            y: p.y + r * Math.sin(h) + along * Math.sin(s),
-          });
-          mapView.setMarks([...this.marks]);
+          showMapStatus(`Cykl ${n}: skan...`);
+          const p = this.pose;
+          mapView.setMarks([p]);
+          await this.scan();
+          this.course = angDiff(p.theta + exploreCfg.turnDeg, 0);
         },
       };
 
-      // MAPA: HANDLERY - łączą przyciski i telemetrię z wykrywaniem ściany
+      // MAPA: HANDLERY - łączą przyciski i telemetrię z automatem mapowania
       // Dostępne elementy siatki:
       //   occGrid.colOf(x), rowOf(y)         - komórka zawierająca punkt [cm]
       //   occGrid.cellX(i), cellY(j)         - środek komórki [cm]
@@ -2652,25 +2451,25 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       const MapHandlers = {
         // użytkownik uruchomił mapowanie albo jest ono wznawiane po przerwie w połączeniu (resume = true)
         onStart(resume) {
-          WallFinder.start(resume);
+          Explorer.start(resume);
         },
 
         // mapowanie zatrzymane, silniki dostały już komendę stop
         // reason: 'user', 'tab' (zmiana zakładki), 'connection', 'calibration', 'hidden' (ukryta karta),
-        // 'poseReset', 'finished' (obie granice znalezione), 'error'
+        // 'poseReset', 'error'
         onStop(reason) {
-          WallFinder.stop(reason);
+          Explorer.stop(reason);
         },
 
         // pomiar sonaru podczas mapowania; poza (x, y, theta) pochodzi z chwili pomiaru
         // m = { servo [st., 90 = przód], dist [cm] albo null przy braku echa, x [cm], y [cm], theta [st.] }
         onMeasurement(m) {
-          WallFinder.onMeasurement(m);
+          Explorer.onMeasurement(m);
         },
 
         // bieżąca poza pojazdu podczas mapowania: p = { x [cm], y [cm], theta [st.] }
         onPose(p) {
-          WallFinder.onPose(p);
+          Explorer.onPose(p);
         },
 
         // użytkownik wyczyścił mapę (occGrid jest już wypełniona wartością l_0)
@@ -2710,7 +2509,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             this.resumePending = true;
             this.resumeFrom = this.lastPose;
             this.stoppedAt = performance.now();
-            showWallStatus('Przerwa w połączeniu z pojazdem - mapowanie zostanie wznowione.');
+            showMapStatus('Przerwa w połączeniu z pojazdem - mapowanie zostanie wznowione.');
           }
         },
 
@@ -2723,7 +2522,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           if (!a || Math.hypot(b.x - a.x, b.y - a.y) > MAP_RESUME_MAX_SHIFT_CM
               || Math.abs(angDiff(b.theta, a.theta)) > MAP_RESUME_MAX_TURN_DEG) {
             this.resumePending = false;
-            showWallStatus('Nie wznowiono mapowania: poza pojazdu zmieniła się podczas przerwy.');
+            showMapStatus('Nie wznowiono mapowania: poza pojazdu zmieniła się podczas przerwy.');
             return;
           }
           Dashboard.logSent('Mapowanie: wznowienie po przerwie w połączeniu');
@@ -2795,20 +2594,20 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       showMapParams(mapDraft);
 
       // prędkości automatu; obrót dokładny nie może być szybszy od zwykłego
-      function showWallSpeeds() {
+      function showExploreSpeeds() {
         for (const el of $$('[data-speed]')) {
-          el.value = wallSpeeds[el.dataset.speed];
+          el.value = exploreSpeeds[el.dataset.speed];
           if (el.type === 'range') paintRange(el);
         }
       }
 
-      function setWallSpeed(key, value) {
-        const old = wallSpeeds.turnSlow;
-        wallSpeeds[key] = value;
-        if (key === 'turn') wallSpeeds.turnSlow = Math.min(wallSpeeds.turnSlow, value);
-        if (key === 'turnSlow') wallSpeeds.turn = Math.max(wallSpeeds.turn, value);
-        if (wallSpeeds.turnSlow !== old) WallFinder.resetPulse(); // inna reakcja na impuls
-        showWallSpeeds();
+      function setExploreSpeed(key, value) {
+        const old = exploreSpeeds.turnSlow;
+        exploreSpeeds[key] = value;
+        if (key === 'turn') exploreSpeeds.turnSlow = Math.min(exploreSpeeds.turnSlow, value);
+        if (key === 'turnSlow') exploreSpeeds.turn = Math.max(exploreSpeeds.turn, value);
+        if (exploreSpeeds.turnSlow !== old) Explorer.resetPulse(); // inna reakcja na impuls
+        showExploreSpeeds();
       }
 
       $$('[data-speed]').forEach(el => {
@@ -2822,16 +2621,51 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           }
         });
         el.addEventListener('change', () => {
-          const v = el.value === '' ? wallSpeeds[el.dataset.speed] : Math.round(+el.value);
-          setWallSpeed(el.dataset.speed, clamp(v, SPEED_MIN, SPEED_MAX));
+          const v = el.value === '' ? exploreSpeeds[el.dataset.speed] : Math.round(+el.value);
+          setExploreSpeed(el.dataset.speed, clamp(v, SPEED_MIN, SPEED_MAX));
         });
       });
       $('#map-speed-default').onclick = () => {
-        Object.assign(wallSpeeds, WALL_SPEED_DEFAULT);
-        WallFinder.resetPulse();
-        showWallSpeeds();
+        Object.assign(exploreSpeeds, EXPLORE_SPEED_DEFAULT);
+        Explorer.resetPulse();
+        showExploreSpeeds();
       };
-      showWallSpeeds();
+      showExploreSpeeds();
+
+      // ustawienia cyklu; obrót bliski zera jest zaokrąglany do EXPLORE_TURN_MIN_DEG w tę samą stronę
+      function showExploreCfg() {
+        for (const el of $$('[data-cfg]')) {
+          el.value = exploreCfg[el.dataset.cfg];
+          if (el.type === 'range') paintRange(el);
+        }
+      }
+
+      function setExploreCfg(key, value) {
+        if (key === 'turnDeg' && Math.abs(value) < EXPLORE_TURN_MIN_DEG) value = (value > 0 ? 1 : -1) * EXPLORE_TURN_MIN_DEG;
+        exploreCfg[key] = value;
+        showExploreCfg();
+      }
+
+      $$('[data-cfg]').forEach(el => {
+        [el.min, el.max, el.step] = EXPLORE_CFG_LIMITS[el.dataset.cfg];
+        el.addEventListener('input', () => {
+          for (const o of $$(`[data-cfg=${el.dataset.cfg}]`)) {
+            if (o === el) continue;
+            o.value = el.value;
+            if (o.type === 'range') paintRange(o);
+          }
+        });
+        el.addEventListener('change', () => {
+          const [min, max] = EXPLORE_CFG_LIMITS[el.dataset.cfg];
+          const v = el.value === '' ? exploreCfg[el.dataset.cfg] : Math.round(+el.value);
+          setExploreCfg(el.dataset.cfg, clamp(v, min, max));
+        });
+      });
+      $('#map-cfg-default').onclick = () => {
+        Object.assign(exploreCfg, EXPLORE_CFG_DEFAULT);
+        showExploreCfg();
+      };
+      showExploreCfg();
 
       // widok mapy: przeciąganie, kółko myszy i przyciski
       const mapCv = mapView.cv;
