@@ -13,9 +13,10 @@
 #include "position.h"
 #include "radar.h"
 
-// wiadomość jest wysyłana dopiero, gdy w buforze nadawczym (64 B, wolne max 63 B) jest co najmniej tyle miejsca;
-// najdłuższa wiadomość (A:MPU) ma max 52 B, więc Serial.print nigdy nie czeka na wolne miejsce
-const uint8_t TX_FREE_MIN = 60;
+// wiadomość jest wysyłana dopiero, gdy bufor nadawczy (64 B, wolne max 63 B) jest całkowicie pusty;
+// najdłuższe wiadomości z "\r\n": A:MPU max 59 B (gx, gy, gz max 7 znaków przy każdym zakresie żyroskopu), A:DIST max 57 B, A:POS max 55 B,
+// więc Serial.print nigdy nie czeka na wolne miejsce
+const uint8_t TX_FREE_MIN = SERIAL_TX_BUFFER_SIZE - 1;
 
 const unsigned long CONNECTION_INTERVAL_MS = 100;
 static unsigned long lastConnectionMs = 0;
@@ -139,6 +140,7 @@ void commSendNext() {
 
 void commRequestConnection() {
   if (millis() - lastConnectionMs < CONNECTION_INTERVAL_MS) return;
+  if (Serial.availableForWrite() < TX_FREE_MIN) return;
   Serial.println(F("A:CONNECTION"));
   lastConnectionMs = millis();
 }

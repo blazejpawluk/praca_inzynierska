@@ -35,8 +35,10 @@
 #include "radar.h"
 
 // konfiguracja systemu
-const unsigned long BAUD = 38400;
-const unsigned long SEND_INTERVAL_MS = 100; // czas między kolejnymi cyklami wysyłania danych
+const unsigned long BAUD = 19200;
+// czas między kolejnymi cyklami wysyłania danych; przy 19200 bodów (1920 B/s) najgorszy przypadek to
+// cykl 200 B co 200 ms (1000 B/s) albo cykl bez DIST 143 B co 200 ms + DIST radaru 57 B co ~86 ms (~1380 B/s)
+const unsigned long SEND_INTERVAL_MS = 200;
 const uint32_t I2C_TIMEOUT_US = 3000; // timeout I2C na wypadek zawieszenia
 
 static unsigned long lastSendMs = 0;

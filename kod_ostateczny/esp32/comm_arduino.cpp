@@ -11,14 +11,14 @@
 // konfiguracja UART
 const int UART_RX_PIN = 13;
 const int UART_TX_PIN = 14;
-const unsigned long UART_BAUD = 38400;
+const unsigned long UART_BAUD = 19200;
 
-// bufor sprzętowego UART; Arduino wysyła ~1.5 kB/s, a wysyłanie przez WebSocket do wolnego klienta
-// może zablokować loop() nawet na kilka sekund (WEBSOCKETS_TCP_TIMEOUT)
-const size_t UART_RX_BUFFER_SIZE = 2048;
+// bufor sprzętowego UART; Arduino wysyła najwyżej ~1.4 kB/s (19200 bodów to max 1.92 kB/s), a wysyłanie
+// przez WebSocket do wolnego klienta może zablokować loop() nawet na kilka sekund (WEBSOCKETS_TCP_TIMEOUT)
+const size_t UART_RX_BUFFER_SIZE = 16384;
 
-// bufor odbiorczy linii
-const size_t RX_BUF_SIZE = 64;
+// bufor odbiorczy linii; najdłuższa linia z Arduino (A:MPU) ma 57 znaków bez "\r\n"
+const size_t RX_BUF_SIZE = 256;
 static char rxBuf[RX_BUF_SIZE];
 static size_t rxLen = 0;
 static bool rxOverflow = false;
@@ -26,14 +26,16 @@ static bool rxOverflow = false;
 // ustawiane przez zadanie UART po utracie danych (przepełnienie bufora jest czyszczone przez sterownik)
 static volatile bool rxError = false;
 
-// najdłuższa komenda przyjmowana przez Arduino
+// najdłuższa komenda przepuszczana do Arduino (najdłuższa poprawna ma 35 znaków, bufor Arduino mieści 127);
+// ograniczenie chroni 64-bajtowy bufor sprzętowy UART Arduino
 const size_t CMD_MAX_LEN = 39;
 
-// odstęp między komendami wysyłanymi do Arduino
+// odstęp między komendami wysyłanymi do Arduino; przy 19200 bodów najdłuższa komenda z '\n' (40 B)
+// i E:CONNECTION (16 B) trwają razem ~29 ms
 const unsigned long CMD_MIN_INTERVAL_MS = 30;
 
-// kolejka komend czekających na wysłanie
-const size_t CMD_QUEUE_SIZE = 8;
+// kolejka komend czekających na wysłanie (z zapasem - w kolejce jest najwyżej jedna komenda danego rodzaju)
+const size_t CMD_QUEUE_SIZE = 32;
 static char cmdQueue[CMD_QUEUE_SIZE][CMD_MAX_LEN + 1];
 static size_t cmdQueueLen = 0;
 static unsigned long lastCmdSentMs = 0;

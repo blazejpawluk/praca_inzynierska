@@ -16,8 +16,8 @@
 ConnectionStatus connectionStatus = CONN_WAIT_AP;
 
 // bufor odbiorczy; najdłuższa poprawna komenda: "W:RADAR:-32767,-32767,-32767,-32767" (35 znaków) + '\0';
-// przy rozszerzaniu protokołu trzeba sprawdzić, czy nowe komendy się mieszczą
-const uint8_t RX_BUF_SIZE = 40;
+// celowo z dużym zapasem (ESP32 przepuszcza komendy do 39 znaków)
+const uint8_t RX_BUF_SIZE = 128;
 static char rxBuf[RX_BUF_SIZE];
 static uint8_t rxLen = 0;
 static bool rxSkipLine = false; // odrzucenie znaków do końca bieżącej linii

@@ -816,7 +816,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       //  KONFIGURACJA
       const LCD_COLS = 16; // szerokość linii LCD
       const LOG_MAX = 60; // maks. liczba wpisów w logach debugowania
-      const SPEED_MIN = 80;
+      const SPEED_MIN = 95;
       const SPEED_MAX = 255;
       const SERVO_MIN = 15;
       const SERVO_MAX = 165;
@@ -2020,7 +2020,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         DIST_TRIES: 4,
         FRONT_PINGS: 5, // liczba pomiarów przy sprawdzaniu odległości na postoju
         MAX_RANGE_CM: 200, // dalszych pomiarów nie używamy (rozdz. 4.2.3)
-        SENSOR_OFFSET_CM: 15, // odległość a sonaru od osi pojazdu (równ. 3.4) - do zmierzenia
+        SENSOR_OFFSET_CM: 13.5, // odległość a sonaru od osi pojazdu (równ. 3.4) - do zmierzenia
         SERVO_TRIM_DEG: 0, // o ile rzeczywisty kierunek sonaru przy 90 st. odbiega od osi pojazdu (+ = w lewo)
 
         SCAN_STEP: 5, // krok skanu zgrubnego [st.]
