@@ -1,0 +1,93 @@
+S1.csv: 7 wierszy, 7 znaczników
+S3.csv: 4429 wierszy, 9 znaczników
+D1.csv: 22319 wierszy, 29 znaczników
+K1.csv: 48261 wierszy, 75 znaczników
+T1.csv: 13505 wierszy, 4 znaczników
+
+=== S1 – dokładność odległości sonaru ===
+ d_rz_cm  n  bez_echa_%  d_zm_cm  sigma_cm  bias_cm  max_blad_cm  d_kor_cm  bias_kor_cm
+    10.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+    20.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+    50.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+   100.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+   150.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+   200.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+   300.0  0         NaN      NaN       NaN      NaN          NaN       NaN          NaN
+  BRAK POMIARÓW A:DIST w pliku – w logu są tylko znaczniki. Pomijam S1.
+
+=== S3 – szerokość wiązki ===
+Pomiarów: 801, przejść na kąt (mediana): 10, krok serwa: 2°
+Wykrycie w ≥50% przejść: 44°–146° → szerokość 102°; środek 95° (oś pojazdu 90°)
+Specyfikacja: 15° (α = 7,5°); zmierzone α ≈ 51.0°
+
+=== D1 – przejechana odległość (rzeczywista = zadana) ===
+  'D1 1m #5': poza startowa (970, 8) – brak zerowania, liczę przyrost
+ nr etykieta  s_rz_mm    x_od  y_od  th_od  s_od_mm  blad_mm  blad_proc    k
+  1 D1 1m #1   1000.0  975.00 12.34   0.57   975.07   -24.93      -2.49 1.03
+  2 D1 1m #2   1000.0  977.00 19.17   1.23   977.18   -22.82      -2.28 1.02
+  3 D1 1m #3   1000.0  984.99  8.69   0.90   985.03   -14.97      -1.50 1.02
+  4 D1 1m #4   1000.0  979.98  9.88   0.27   980.03   -19.97      -2.00 1.02
+  5 D1 1m #5   1000.0  987.28 15.08   0.91   987.40   -12.60      -1.26 1.01
+  6 D1 2m #1   2000.0 1918.95 25.35   0.94  1919.11   -80.89      -4.04 1.04
+  7 D1 2m #2   2000.0 1916.97 30.67   1.29  1917.22   -82.78      -4.14 1.04
+  8 D1 2m #3   2000.0 1908.99 18.67   0.27  1909.08   -90.92      -4.55 1.05
+  9 D1 2m #4   2000.0 1875.99 18.31   1.06  1876.08  -123.92      -6.20 1.07
+ 10 D1 2m #5   2000.0 1897.01 -6.01  -0.87  1897.02  -102.98      -5.15 1.05
+
+         n  s_od_sr  s_od_sigma  blad_sr_mm  blad_proc_sr  blad_proc_sigma  blad_max_mm  y_od_sr  th_od_sr  th_od_sigma
+s_rz_mm                                                                                                                
+1000.0   5   980.94        5.19      -19.06         -1.91             0.52        24.93    13.03      0.78         0.37
+2000.0   5  1903.70       17.73      -96.30         -4.81             0.89       123.92    17.40      0.54         0.87
+Średni współczynnik skali k = 1.0351 (σ = 0.0181) → efektywna średnica koła D_ef = 67.28 mm (przyjęto 65 mm)
+y_od i th_od to boczne zejście i obrót, które zarejestrowała sama odometria (rzeczywistego zejścia nie mierzono).
+
+=== K1 – obrót w miejscu (rzeczywisty = zadany) ===
+ nr   etykieta    cel  th_od  obrot_od  e_th  skala
+  1  K1 +90 #1   90.0  88.10     88.26 -1.74   1.02
+  2  K1 +90 #1   90.0  90.83     90.92  0.92   0.99
+  3  K1 +90 #2   90.0  90.73     90.85  0.85   0.99
+  4  K1 +90 #3   90.0  89.88     90.53  0.53   0.99
+  5  K1 +90 #4   90.0  89.86     89.79 -0.21   1.00
+  6  K1 +90 #5   90.0  89.36     89.33 -0.67   1.01
+  7  K1 -90 #1  -90.0 -91.25    -91.33 -1.33   0.99
+  8  K1 -90 #1  -90.0 -89.60    -89.60  0.40   1.00
+  9  K1 -90 #2  -90.0 -93.73    -93.75 -3.75   0.96
+ 10  K1 -90 #3  -90.0 -89.76    -89.77  0.23   1.00
+ 11  K1 -90 #4  -90.0 -89.40    -89.45  0.55   1.01
+ 12  K1 -90 #5  -90.0 -89.42    -89.44  0.56   1.01
+ 13 K1 +360 #1  360.0  -1.23    358.80 -1.20   1.00
+ 14 K1 +360 #2  360.0   0.56    360.60  0.60   1.00
+ 15 K1 +360 #3  360.0   3.40    363.36  3.36   0.99
+ 16 K1 +360 #4  360.0  -0.18    359.81 -0.19   1.00
+ 17 K1 +360 #5  360.0   1.19    361.18  1.18   1.00
+ 18 K1 -360 #1 -360.0  -0.10   -360.11 -0.11   1.00
+ 19 K1 -360 #2 -360.0   1.17   -358.90  1.10   1.00
+ 20 K1 -360 #3 -360.0   0.76   -359.24  0.76   1.00
+ 21 K1 -360 #4 -360.0   0.28   -359.69  0.31   1.00
+ 22 K1 -360 #5 -360.0  -1.02   -361.03 -1.03   1.00
+
+        n   e_sr  e_sigma  e_max  skala_sr  e_proc
+cel                                               
+-360.0  5  0.206    0.828   1.10     1.001   0.057
+-90.0   6 -0.557    1.721   3.75     0.994  -0.619
+ 90.0   6 -0.053    1.035   1.74     1.001  -0.059
+ 360.0  5  0.750    1.711   3.36     0.998   0.208
+Średnia skala (obrót zadany / zgłoszony) = 0.9983
+
+=== T1 – kwadrat 1×1 m (UMBmark) ===
+ nr        etykieta kierunek  x_od  y_od  th_od  droga_od_mm  eps_x  eps_y  eps_th  eps_r  x_rz   y_rz
+  1  T1 CW +1 start       CW   6.0  -3.0   -0.2       5012.6    5.0  380.0     1.0  380.0  11.0  377.0
+  2 T1 CCW +1 start      CCW  24.0   1.0    0.5       4586.3    0.0 -185.0   -13.6  185.0  24.0 -184.0
+CW: n=1, środek ciężkości (0.5; 38.0) cm, r = 38.0 cm, ε_θ = 1.0°
+CCW: n=1, środek ciężkości (0.0; -18.5) cm, r = 18.5 cm, ε_θ = -13.6°
+E_max,syst = 38.0 cm = 9.50% drogi 4 m (po 1 przejeździe na kierunek – wynik orientacyjny)
+Średni |ε_θ| = 7.3° na pętlę 4×90°
+
+=== Telemetria – odstępy A:POS (dane do 8.4) ===
+log     n  dt_sr_ms  dt_sigma_ms  dt_p99_ms  dt_max_ms  ramki_na_s  dt_>300ms_%  dt_<100ms_%  przerwy_>2s
+ S3  1205    187.66       108.56     603.00     1700.8        5.33         3.75        13.84            5
+ D1  5607    197.39        69.36     408.81     1700.8        5.07         2.79         5.61            7
+ K1 11940    196.05        80.19     433.26     1936.4        5.10         3.71         7.53           19
+ T1  3261    188.88       106.49     511.48     1897.2        5.29         4.77        13.79           11
+Przerwy ≥ 2 s (kalibracja, przerwy między testami) pominięto w statystykach i policzono osobno.
+Średni odstęp ≈ 200 ms oznacza brak utraty danych; odstępy > 300 ms i < 100 ms to ramki opóźnione i dostarczone później w paczce (zatory w transmisji).
