@@ -13,8 +13,7 @@ const int UART_RX_PIN = 13;
 const int UART_TX_PIN = 14;
 const unsigned long UART_BAUD = 19200;
 
-// bufor sprzętowego UART; Arduino wysyła najwyżej ~1.4 kB/s (19200 bodów to max 1.92 kB/s), a wysyłanie
-// przez WebSocket do wolnego klienta może zablokować loop() nawet na kilka sekund (WEBSOCKETS_TCP_TIMEOUT)
+// bufor sprzętowego UART
 const size_t UART_RX_BUFFER_SIZE = 16384;
 
 // bufor odbiorczy linii; najdłuższa linia z Arduino (A:MPU) ma 57 znaków bez "\r\n"
